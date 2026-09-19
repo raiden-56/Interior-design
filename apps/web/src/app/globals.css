@@ -1,0 +1,33 @@
+@import "tailwindcss";
+
+/* Utilities referenced by components/ui/* — previously used but never defined. */
+.focusable {
+  outline: none;
+}
+.focusable:focus-visible {
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.55);
+}
+.no-select {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.font-mono2 {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+html, body {
+  height: 100%;
+  background: #090b10;
+  color-scheme: dark;
+}
+
+/* Range inputs: consistent thumb across browsers. */
+input[type='range'].accent-sky-500::-webkit-slider-thumb {
+  appearance: none;
+  height: 12px;
+  width: 12px;
+  border-radius: 999px;
+  background: #38bdf8;
+  border: 2px solid #0c0f14;
+}
