@@ -26,7 +26,7 @@ export function RightPanel() {
   );
 
   return (
-    <aside className="flex w-72 shrink-0 flex-col border-l border-zinc-800 bg-[#0d1016]">
+    <aside data-tour="right-panel" className="flex w-72 shrink-0 flex-col border-l border-zinc-800 bg-[#0d1016]">
       <div className="flex items-center justify-between border-b border-zinc-800/70 px-3 py-2">
         <span className="text-xs font-semibold uppercase tracking-wider text-zinc-400">Properties</span>
         <button onClick={toggleRight} className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200" title="Hide panel (Ctrl+])">

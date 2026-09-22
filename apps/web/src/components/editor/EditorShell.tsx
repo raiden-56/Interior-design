@@ -17,6 +17,7 @@ import { KeyboardShortcuts } from './Shortcuts';
 import { ShortcutsDialog } from './ShortcutsDialog';
 import { CanvasErrorBoundary } from './CanvasErrorBoundary';
 import { ClientSummaryPanel } from './ClientSummaryPanel';
+import { TourLauncher } from './TourLauncher';
 
 const Canvas2D = dynamic(() => import('./Canvas2D').then((m) => m.Canvas2D), { ssr: false, loading: () => <CanvasLoading label="Loading 2D engine…" /> });
 const Canvas3D = dynamic(() => import('./Canvas3D').then((m) => m.Canvas3D), { ssr: false, loading: () => <CanvasLoading label="Loading 3D engine…" /> });
@@ -71,7 +72,7 @@ export function EditorShell() {
       <div className="flex min-h-0 flex-1">
         {/* The catalog, structure and material tabs are all editing tools. */}
         {leftOpen && canEdit && <LeftPanel />}
-        <main className="relative min-w-0 flex-1 overflow-hidden bg-[#0c0f14]">
+        <main data-tour="canvas" className="relative min-w-0 flex-1 overflow-hidden bg-[#0c0f14]">
           {view === '2d' ? (
             <CanvasErrorBoundary label="floor plan">
               <Canvas2D />
@@ -83,6 +84,7 @@ export function EditorShell() {
           )}
           {aiOpen && canUseAi && <AiAssistant />}
           <ModalTransformHud />
+          <TourLauncher />
           <ViewSwitchOverlay />
           <ToolHint />
         </main>

@@ -181,6 +181,7 @@ export function TopBar() {
       <div className="mx-1 h-5 w-px bg-zinc-800" />
 
       <input
+        data-tour="project-name"
         value={project.name}
         readOnly={!canEdit}
         onChange={(e) => updateProjectInfo({ name: e.target.value })}
@@ -197,7 +198,7 @@ export function TopBar() {
 
       {/* View + camera controls */}
       <div className="flex items-center">
-        <div className="flex items-center rounded-lg border border-zinc-700/70 bg-zinc-900 p-0.5">
+        <div data-tour="view-toggle" className="flex items-center rounded-lg border border-zinc-700/70 bg-zinc-900 p-0.5">
           <SegBtn
             active={view === "2d"}
             onClick={() => setView("2d")}
@@ -226,7 +227,7 @@ export function TopBar() {
         )}
 
         {view === "3d" && (
-          <div className="ml-2 flex items-center gap-1">
+          <div data-tour="camera-presets" className="ml-2 flex items-center gap-1">
             {CAMERAS.map((c) => (
               <button
                 key={c.id}
@@ -261,7 +262,7 @@ export function TopBar() {
                 </option>
               ))}
             </select>
-            <div className="ml-1 flex items-center rounded-lg border border-zinc-700/70 bg-zinc-900 p-0.5">
+            <div data-tour="transform-modes" className="ml-1 flex items-center rounded-lg border border-zinc-700/70 bg-zinc-900 p-0.5">
               {(["translate", "rotate", "scale"] as const).map((m) => (
                 <button
                   key={m}
@@ -292,7 +293,7 @@ export function TopBar() {
 
       {/* History */}
       {canEdit && (
-      <div className="flex items-center gap-0.5">
+      <div data-tour="history" className="flex items-center gap-0.5">
         <IconBtn
           title={undoLabel ? `Undo ${undoLabel} (Ctrl+Z)` : "Nothing to undo"}
           disabled={!canUndo}
@@ -317,6 +318,7 @@ export function TopBar() {
       {/* Save state */}
       {canEdit && (
       <button
+        data-tour="save"
         onClick={handleSave}
         className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
         title="Save now (Ctrl+S) — changes are also saved automatically"
@@ -334,7 +336,7 @@ export function TopBar() {
 
       {/* Export / import — a read-only link has no file path out. */}
       {canExport && (
-      <div className="relative" ref={menuRef}>
+      <div data-tour="export" className="relative" ref={menuRef}>
         <button
           onClick={() => setExportOpen((o) => !o)}
           className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-zinc-300 hover:bg-zinc-800"
@@ -385,6 +387,7 @@ export function TopBar() {
 
       {canEdit && (
         <button
+          data-tour="share"
           onClick={handleShare}
           className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-zinc-300 hover:bg-zinc-800"
           title={canShare ? "Share with a client" : "Copy a link to this project"}
@@ -394,6 +397,7 @@ export function TopBar() {
       )}
 
       <button
+        data-tour="help"
         onClick={() => setShortcutsOpen(true)}
         className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-zinc-300 hover:bg-zinc-800"
         title="Help & shortcuts (?)"

@@ -2,7 +2,9 @@
 
 import * as React from 'react';
 import { useUiStore } from '@/stores/ui-store';
+import { Compass } from 'lucide-react';
 import { Dialog } from '@/components/ui/dialog';
+import { requestTour } from './TourLauncher';
 import { SHORTCUT_GROUPS } from './Shortcuts';
 
 export function ShortcutsDialog() {
@@ -12,6 +14,19 @@ export function ShortcutsDialog() {
 
   return (
     <Dialog open={open} onClose={onClose} title="Keyboard shortcuts" width="max-w-2xl">
+      <button
+        onClick={() => {
+          onClose();
+          requestTour();
+        }}
+        className="mb-4 flex w-full items-center gap-2.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2.5 text-left hover:bg-sky-500/15"
+      >
+        <Compass className="h-4 w-4 shrink-0 text-sky-300" />
+        <span>
+          <span className="block text-xs font-semibold text-zinc-100">Take the tour</span>
+          <span className="block text-[11px] text-zinc-400">Every tool, in order, with what it does — about two minutes.</span>
+        </span>
+      </button>
       <div className="grid gap-5 sm:grid-cols-3">
         {SHORTCUT_GROUPS.map((group) => (
           <div key={group.title}>

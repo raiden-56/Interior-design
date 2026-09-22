@@ -15,12 +15,18 @@ export function LeftPanel() {
   const toggleLeft = useUiStore((s) => s.toggleLeft);
 
   return (
-    <aside className="flex w-64 shrink-0 flex-col border-r border-zinc-800 bg-[#0d1016]">
+    <aside data-tour="left-panel" className="flex w-64 shrink-0 flex-col border-r border-zinc-800 bg-[#0d1016]">
       <div className="flex items-center justify-between border-b border-zinc-800/70 px-2 py-2">
         <div className="flex items-center gap-1">
-          <TabBtn active={tab === 'furniture'} onClick={() => setTab('furniture')} icon={<Armchair className="h-3.5 w-3.5" />} label="Furniture" />
-          <TabBtn active={tab === 'walls'} onClick={() => setTab('walls')} icon={<PencilRuler className="h-3.5 w-3.5" />} label="Structure" />
-          <TabBtn active={tab === 'materials'} onClick={() => setTab('materials')} icon={<Palette className="h-3.5 w-3.5" />} label="Materials" />
+          <span data-tour="tab-furniture">
+            <TabBtn active={tab === 'furniture'} onClick={() => setTab('furniture')} icon={<Armchair className="h-3.5 w-3.5" />} label="Furniture" />
+          </span>
+          <span data-tour="tab-structure">
+            <TabBtn active={tab === 'walls'} onClick={() => setTab('walls')} icon={<PencilRuler className="h-3.5 w-3.5" />} label="Structure" />
+          </span>
+          <span data-tour="tab-materials">
+            <TabBtn active={tab === 'materials'} onClick={() => setTab('materials')} icon={<Palette className="h-3.5 w-3.5" />} label="Materials" />
+          </span>
         </div>
         <button onClick={toggleLeft} className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-200" title="Hide panel">
           <X className="h-4 w-4" />
@@ -109,7 +115,7 @@ function FurnitureTab() {
       <p className="mb-2 text-[10px] leading-relaxed text-zinc-500">
         Click an item, then click on the canvas to place it. You can also ask the AI assistant to furnish the space for you.
       </p>
-      <div className="grid grid-cols-2 gap-2">
+      <div data-tour="furniture-grid" className="grid grid-cols-2 gap-2">
         {items.map((a) => (
           <button
             key={a.id}

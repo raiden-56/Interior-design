@@ -7,6 +7,10 @@ Browser-based interior design: draw a floor plan in 2D, see it in 3D instantly, 
 - **Materials** — wood, stone, metal, fabric, glass and paint finishes for walls, floors and furniture.
 - **AI assistant** — "add a grey sofa near the window", "make this room modern". Proposals are previewed and applied only when you confirm. Works offline with a built-in rule engine; plugs into Claude when a key is configured.
 - **Ready-made home plans** — 1 BHK, 2 BHK (classic and open-plan), 3 BHK, studio and single-room starters, each drawn with walls, doors, windows and a full set of furniture. The gallery measures every plan (footprint, carpet area, room-by-room areas, furniture count) so you can compare before you commit, then open one and edit it like any other project.
+- **Guided tour** — a first run offers a walkthrough of every tool, with Back / Next / Skip and a progress
+  count. Come back to it any time from **?** → **Take the tour**.
+- **Video manual** — a 3m50s recorded walkthrough ([`docs/USER-MANUAL.md`](docs/USER-MANUAL.md)), produced by
+  driving the real app, so it can be regenerated whenever the UI changes.
 - **Accounts and roles** — sign-in is required to open the studio. An **Architect** (owner) can do everything, a **Collaborator** can edit but not share or delete, and a **Client** gets a read-only link.
 - **Client links** — send a watermarked, view-only link with an expiry date and an optional passcode. No editing, no download, no printing, and every open is logged.
 - **Projects** — autosave to the browser, sync to the backend when it's running, import/export JSON, open the same project on any device via its link.
@@ -97,6 +101,7 @@ watermark naming the link it came from.
 | Share | Top bar share icon copies `/editor/<id>`; with the backend running it opens anywhere |
 | Export / import | Top bar **Export** → PNG snapshot, JSON download, or **Import project** |
 | All shortcuts | Press `?` |
+| Guided tour | Press `?` → **Take the tour** — 25 stops covering every tool; Skip or Esc leaves at any point |
 
 ## Architecture
 
@@ -145,6 +150,20 @@ Principles the code follows:
 | `npm run setup:api` | Create the backend venv and install requirements |
 | `npm run dev:site` / `npm run build:site` / `npm run preview:site` | Marketing site: dev server / static build with prerendering / preview the build |
 | `npm run build:all` | Build the app and the marketing site |
+| `npm run record:manual` | Re-record the user-manual video (needs the app running) → `apps/site/public/user-manual.mp4` |
+
+## Documentation
+
+| Where | What |
+|---|---|
+| [`docs/USER-MANUAL.md`](docs/USER-MANUAL.md) | Written manual: create, navigate, add objects, move and rotate, paint a wall, draw structure, export, import, share |
+| `apps/site/public/user-manual.mp4` | The same walkthrough as a video, 13 chapters. Also served by the marketing site at `/user-manual.mp4` |
+| In the app | `?` for shortcuts, **Take the tour** for the guided walkthrough |
+
+The video is recorded by [`tools/record-manual.mjs`](tools/record-manual.mjs), which drives a real browser
+through the app over the DevTools Protocol, draws a visible cursor and captions into the page, captures the
+screen, and encodes with the bundled ffmpeg. Every click in it is a real click, so the manual cannot quietly
+drift from the product — re-run `npm run record:manual` after a UI change.
 
 ## Deploying
 

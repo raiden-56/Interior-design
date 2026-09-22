@@ -58,3 +58,81 @@ body.protected-view {
     color: #111;
   }
 }
+
+/*
+ * Guided tour (driver.js).
+ *
+ * The library ships a light popover; these rules put it in the app's palette
+ * so a tour stop looks like part of the studio rather than a browser alert.
+ */
+.driver-popover.interior-tour {
+  background: #0f131a;
+  color: #e4e4e7;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  border-radius: 12px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  max-width: 22rem;
+  padding: 1rem 1rem 0.85rem;
+}
+
+.driver-popover.interior-tour .driver-popover-title {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #f4f4f5;
+}
+
+.driver-popover.interior-tour .driver-popover-description {
+  font-size: 0.78rem;
+  line-height: 1.6;
+  color: #a1a1aa;
+  margin-top: 0.35rem;
+}
+
+.driver-popover.interior-tour .driver-popover-description b {
+  color: #7dd3fc;
+  font-weight: 600;
+}
+
+.driver-popover.interior-tour .driver-popover-progress-text {
+  font-size: 0.68rem;
+  color: #71717a;
+}
+
+.driver-popover.interior-tour .driver-popover-navigation-btns button {
+  background: #27272a;
+  color: #e4e4e7;
+  border: 1px solid #3f3f46;
+  border-radius: 8px;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 500;
+  text-shadow: none;
+}
+
+.driver-popover.interior-tour .driver-popover-navigation-btns button:hover {
+  background: #3f3f46;
+}
+
+/* The primary action is the one that moves you forward. */
+.driver-popover.interior-tour .driver-popover-navigation-btns button:last-child {
+  background: #0284c7;
+  border-color: #0ea5e9;
+  color: #fff;
+}
+
+.driver-popover.interior-tour .driver-popover-navigation-btns button:last-child:hover {
+  background: #0ea5e9;
+}
+
+.driver-popover.interior-tour .driver-popover-close-btn {
+  color: #a1a1aa;
+  font-size: 1.4rem;
+}
+
+.driver-popover.interior-tour .driver-popover-close-btn:hover {
+  color: #fafafa;
+}
+
+.driver-popover.interior-tour .driver-popover-arrow {
+  border-color: #0f131a;
+}

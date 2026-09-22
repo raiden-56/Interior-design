@@ -42,10 +42,11 @@ export function BottomBar() {
   return (
     <footer className="z-20 flex h-11 shrink-0 items-center gap-3 border-t border-zinc-800 bg-[#0d1016] px-3 text-xs">
       {/* Tools */}
-      <div className="flex items-center gap-0.5">
+      <div data-tour="tools" className="flex items-center gap-0.5">
         {tools.map((t) => (
           <button
             key={t.id}
+            data-tour={`tool-${t.id}`}
             onClick={() => setTool(t.id)}
             // Panning is the one tool that means something in 3D as well; the
             // drawing tools still need the floor plan.
@@ -96,7 +97,7 @@ export function BottomBar() {
       <div className="flex-1" />
 
       {/* Floors */}
-      <div className="flex items-center gap-1">
+      <div data-tour="floors" className="flex items-center gap-1">
         <span className="text-[10px] uppercase tracking-wider text-zinc-500">Floors</span>
         {project.floors.map((f) => (
           <span key={f.id} className="flex items-center overflow-hidden rounded-md">
@@ -142,7 +143,7 @@ export function BottomBar() {
       </div>
 
       {/* Units */}
-      <div className={cn('flex items-center gap-1', !canEdit && 'hidden')}>
+      <div data-tour="units" className={cn('flex items-center gap-1', !canEdit && 'hidden')}>
         {(['meters', 'centimeters', 'feet'] as const).map((u) => (
           <button
             key={u}
@@ -158,7 +159,7 @@ export function BottomBar() {
       </div>
 
       {warnings.length > 0 && (
-        <div className="rounded-md bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300" title={warnings.join('\n')}>
+        <div data-tour="warnings" className="rounded-md bg-amber-500/10 px-2 py-1 text-[11px] text-amber-300" title={warnings.join('\n')}>
           {warnings.length} warning{warnings.length > 1 ? 's' : ''}
         </div>
       )}

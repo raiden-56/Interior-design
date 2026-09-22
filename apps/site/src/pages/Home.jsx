@@ -103,6 +103,30 @@ export default function Home() {
         </div>
       </Section>
 
+      {/* The recorded walkthrough */}
+      <Section
+        eyebrow="Watch it work"
+        title="The whole workflow in under four minutes"
+        lead="Recorded straight from the app: signing in, picking a plan, furnishing it, painting a wall, the 3D walkthrough, exporting, and sending a client a protected link."
+      >
+        <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/40 shadow-2xl">
+          <video
+            controls
+            preload="metadata"
+            playsInline
+            poster="/og-cover.svg"
+            className="aspect-[16/10] w-full bg-black"
+          >
+            <source src="/user-manual.mp4" type="video/mp4" />
+            Your browser cannot play this video.
+          </video>
+        </div>
+        <p className="mt-3 text-xs text-zinc-500">
+          13 chapters · create · navigate · add objects · move and rotate · paint a wall · 3D · viewpoints · exact
+          transforms · export · share · the in-app guided tour.
+        </p>
+      </Section>
+
       {/* How it works */}
       <Section eyebrow="How it works" title="Three steps to a client-ready walkthrough">
         <ol className="grid gap-4 md:grid-cols-3">

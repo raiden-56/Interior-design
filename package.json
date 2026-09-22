@@ -18,6 +18,10 @@
     "dev:site": "npm run dev -w @interior/site",
     "build:site": "npm run build -w @interior/site",
     "preview:site": "npm run preview -w @interior/site",
-    "build:all": "npm run build && npm run build:site"
+    "build:all": "npm run build && npm run build:site",
+    "record:manual": "node tools/record-manual.mjs"
+  },
+  "devDependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0"
   }
 }
