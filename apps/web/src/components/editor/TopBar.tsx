@@ -19,6 +19,7 @@ import {
   Check,
   X,
   CircleHelp,
+  LogOut,
   Focus,
   Cloud,
   CloudOff,
@@ -27,6 +28,8 @@ import {
 } from "lucide-react";
 import { useEditorStore } from "@/stores/editor-store";
 import { useUiStore } from "@/stores/ui-store";
+import { useCan, useSessionStore } from "@/stores/session-store";
+import { ShareDialog } from "./ShareDialog";
 import {
   downloadProject,
   parseProjectFile,
@@ -90,6 +93,14 @@ export function TopBar() {
   const updateProjectInfo = useEditorStore((s) => s.updateProjectInfo);
   const pushToast = useEditorStore((s) => s.pushToast);
   const editor2D = useEditorStore((s) => s.editor2D);
+  const canEdit = useCan("edit");
+  const canExport = useCan("exportFiles");
+  const canShare = useCan("share");
+  const account = useSessionStore((s) =>
+    s.session?.kind === "account" ? s.session : null,
+  );
+  const signOut = useSessionStore((s) => s.signOut);
+  const [shareOpen, setShareOpen] = React.useState(false);
   const [exportOpen, setExportOpen] = React.useState(false);
   const [savedFlash, setSavedFlash] = React.useState(false);
   const menuRef = React.useRef<HTMLDivElement>(null);
@@ -117,6 +128,12 @@ export function TopBar() {
   };
 
   const handleShare = async () => {
+    // An owner gets the full client-link builder; anyone else just copies
+    // the project URL, which still needs an account to open.
+    if (canShare) {
+      setShareOpen(true);
+      return;
+    }
     const url = `${window.location.origin}/editor/${project.id}`;
     // Make sure the link resolves for whoever receives it.
     await saveNow();
@@ -165,6 +182,7 @@ export function TopBar() {
 
       <input
         value={project.name}
+        readOnly={!canEdit}
         onChange={(e) => updateProjectInfo({ name: e.target.value })}
         onBlur={(e) => {
           if (!e.target.value.trim())
@@ -273,6 +291,7 @@ export function TopBar() {
       <div className="mx-2 h-5 w-px bg-zinc-800" />
 
       {/* History */}
+      {canEdit && (
       <div className="flex items-center gap-0.5">
         <IconBtn
           title={undoLabel ? `Undo ${undoLabel} (Ctrl+Z)` : "Nothing to undo"}
@@ -291,10 +310,12 @@ export function TopBar() {
           <Redo2 className="h-4 w-4" />
         </IconBtn>
       </div>
+      )}
 
-      <div className="mx-1 h-5 w-px bg-zinc-800" />
+      {canEdit && <div className="mx-1 h-5 w-px bg-zinc-800" />}
 
       {/* Save state */}
+      {canEdit && (
       <button
         onClick={handleSave}
         className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800"
@@ -307,10 +328,12 @@ export function TopBar() {
         )}
         <SyncLabel state={syncState} dirty={dirty} />
       </button>
+      )}
 
-      <div className="mx-1 h-5 w-px bg-zinc-800" />
+      {canExport && <div className="mx-1 h-5 w-px bg-zinc-800" />}
 
-      {/* Export / import */}
+      {/* Export / import — a read-only link has no file path out. */}
+      {canExport && (
       <div className="relative" ref={menuRef}>
         <button
           onClick={() => setExportOpen((o) => !o)}
@@ -358,14 +381,17 @@ export function TopBar() {
           onChange={(e) => void handleImport(e.target.files?.[0])}
         />
       </div>
+      )}
 
-      <button
-        onClick={handleShare}
-        className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-zinc-300 hover:bg-zinc-800"
-        title="Copy a link to this project"
-      >
-        <Share2 className="h-4 w-4" />
-      </button>
+      {canEdit && (
+        <button
+          onClick={handleShare}
+          className="flex items-center gap-1.5 rounded-md px-2 py-1.5 text-zinc-300 hover:bg-zinc-800"
+          title={canShare ? "Share with a client" : "Copy a link to this project"}
+        >
+          <Share2 className="h-4 w-4" />
+        </button>
+      )}
 
       <button
         onClick={() => setShortcutsOpen(true)}
@@ -383,6 +409,26 @@ export function TopBar() {
         <Sparkles className="h-4 w-4" />
         {aiOpen ? <X className="h-3.5 w-3.5" /> : <span className="hidden md:inline">AI</span>}
       </button> */}
+
+      {account && (
+        <div className="ml-1 flex items-center gap-1.5 border-l border-zinc-800 pl-2">
+          <span
+            className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-zinc-800 text-[10px] font-semibold uppercase text-zinc-300"
+            title={`${account.name} · ${account.email}`}
+          >
+            {account.name.slice(0, 1)}
+          </span>
+          <button
+            onClick={() => void signOut()}
+            className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100"
+            title="Sign out"
+          >
+            <LogOut className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {canShare && <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} />}
     </header>
   );
 }

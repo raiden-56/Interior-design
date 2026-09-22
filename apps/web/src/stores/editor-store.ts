@@ -33,6 +33,7 @@ import {
 import type { CollisionWarning } from '@interior/core';
 import { saveProjectLocal, deleteProjectLocal, remoteSave, remoteDelete, downloadProject } from '@/lib/storage';
 import { useUiStore } from '@/stores/ui-store';
+import { sessionCan } from '@/stores/session-store';
 import type { PlanEditor2D } from '@/components/editor/PlanEditor2D';
 
 export type Tool = 'select' | 'wall' | 'door' | 'window' | 'room' | 'pan' | 'measure';
@@ -215,6 +216,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
    * instead of undoing the last design change.
    */
   updateProjectInfo: (patch) => {
+    if (!sessionCan('edit')) return;
     const { project } = get();
     set({ project: cloneProject({ ...project, ...patch }) });
     get().scheduleSave();
@@ -266,6 +268,13 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   },
 
   run: (command, label) => {
+    // The one place every mutation passes through. A read-only session is
+    // refused here rather than by hiding buttons, so a stray keyboard
+    // shortcut or a leftover handler cannot change a client's copy.
+    if (!sessionCan('edit')) {
+      get().pushToast('This is a read-only view', 'info');
+      return;
+    }
     const { project, history, activeFloorId } = get();
     const targeted = withFloorId(command, activeFloorId);
     const result = applyCommand(project, targeted);
@@ -290,6 +299,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   },
 
   undo: () => {
+    if (!sessionCan('edit')) return;
     const { history, project } = get();
     const cmd = undoCommand(history);
     if (!cmd) return;
@@ -307,6 +317,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   },
 
   redo: () => {
+    if (!sessionCan('edit')) return;
     const { history, project } = get();
     const cmd = redoCommand(history);
     if (!cmd) return;
@@ -414,6 +425,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   },
 
   save: () => {
+    if (!sessionCan('edit')) return;
     try {
       saveProjectLocal(get().project);
       set({ savedAt: Date.now(), dirty: false, syncState: get().backendLive ? get().syncState : 'local' });
@@ -423,6 +435,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   },
 
   saveNow: async () => {
+    if (!sessionCan('edit')) return;
     if (localSaveTimer) clearTimeout(localSaveTimer);
     if (remoteSaveTimer) clearTimeout(remoteSaveTimer);
     get().save();
@@ -437,6 +450,7 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
    * after project creation ever reached the backend at all.
    */
   scheduleSave: () => {
+    if (!sessionCan('edit')) return;
     set({ dirty: true });
     if (localSaveTimer) clearTimeout(localSaveTimer);
     localSaveTimer = setTimeout(() => get().save(), LOCAL_SAVE_DELAY_MS);
@@ -450,11 +464,16 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   },
 
   deleteProject: async (projectId) => {
+    if (!sessionCan('remove')) return;
     deleteProjectLocal(projectId);
     await remoteDelete(projectId);
   },
 
   exportJson: () => {
+    if (!sessionCan('exportFiles')) {
+      get().pushToast('Downloads are disabled on this link', 'info');
+      return;
+    }
     downloadProject(get().project);
   },
 

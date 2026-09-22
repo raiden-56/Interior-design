@@ -4,6 +4,7 @@ import * as React from 'react';
 import { MousePointer2, PencilRuler, DoorOpen, Grid3x3, Ruler, Hand, Plus, Trash2, Focus, Crosshair, Eye, EyeOff } from 'lucide-react';
 import { useEditorStore } from '@/stores/editor-store';
 import { useUiStore } from '@/stores/ui-store';
+import { useCan } from '@/stores/session-store';
 import { cn } from '@/lib/cn';
 import type { PlanTool } from '@/lib/plan-types';
 
@@ -32,6 +33,9 @@ export function BottomBar() {
   const editor2D = useEditorStore((s) => s.editor2D);
   const warnings = useEditorStore((s) => s.warnings);
   const spaceHeld = useUiStore((s) => s.spaceHeld);
+  const canEdit = useCan('edit');
+  // Select and pan are ways of looking; the rest change the drawing.
+  const tools = canEdit ? TOOLS : TOOLS.filter((t) => t.id === 'select' || t.id === 'pan');
 
   const fit2D = () => editor2D?.fitView();
 
@@ -39,7 +43,7 @@ export function BottomBar() {
     <footer className="z-20 flex h-11 shrink-0 items-center gap-3 border-t border-zinc-800 bg-[#0d1016] px-3 text-xs">
       {/* Tools */}
       <div className="flex items-center gap-0.5">
-        {TOOLS.map((t) => (
+        {tools.map((t) => (
           <button
             key={t.id}
             onClick={() => setTool(t.id)}
@@ -117,14 +121,16 @@ export function BottomBar() {
             )}
           </span>
         ))}
-        <button
-          onClick={() => addFloor(`Floor ${project.floors.length + 1}`)}
-          title="Add floor"
-          className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-emerald-400"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-        {project.floors.length > 1 && (
+        {canEdit && (
+          <button
+            onClick={() => addFloor(`Floor ${project.floors.length + 1}`)}
+            title="Add floor"
+            className="rounded p-1 text-zinc-400 hover:bg-zinc-800 hover:text-emerald-400"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        )}
+        {canEdit && project.floors.length > 1 && (
           <button
             onClick={() => deleteFloor(activeFloorId)}
             title="Remove active floor"
@@ -136,7 +142,7 @@ export function BottomBar() {
       </div>
 
       {/* Units */}
-      <div className="flex items-center gap-1">
+      <div className={cn('flex items-center gap-1', !canEdit && 'hidden')}>
         {(['meters', 'centimeters', 'feet'] as const).map((u) => (
           <button
             key={u}

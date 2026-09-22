@@ -14,6 +14,10 @@
     "test": "npm run test -w @interior/web",
     "dev:api": "cd backend && .venv/Scripts/python -m uvicorn app.main:app --reload --port 8000",
     "dev:api:unix": "cd backend && .venv/bin/python -m uvicorn app.main:app --reload --port 8000",
-    "setup:api": "cd backend && python -m venv .venv && .venv/Scripts/python -m pip install -r requirements.txt"
+    "setup:api": "cd backend && python -m venv .venv && .venv/Scripts/python -m pip install -r requirements.txt",
+    "dev:site": "npm run dev -w @interior/site",
+    "build:site": "npm run build -w @interior/site",
+    "preview:site": "npm run preview -w @interior/site",
+    "build:all": "npm run build && npm run build:site"
   }
 }

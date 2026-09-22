@@ -3,13 +3,14 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Plus, Trash2, Layers, Box, Sparkles, Palette, Database, ArrowRight, Upload, Copy, Pencil, Check, X, Cloud, HardDrive, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Layers, Box, Sparkles, Palette, Database, ArrowRight, Upload, Copy, Pencil, Check, X, Cloud, HardDrive, Loader2, LogOut } from 'lucide-react';
 import type { Project } from '@interior/core';
 import { deleteProjectLocal, parseProjectFile, readFileAsText, remoteDelete, remoteSave, saveProjectLocal, syncProjectList } from '@/lib/storage';
 import { TEMPLATES, templateStats, type ProjectTemplate } from '@/lib/templates';
 import { PlanThumbnail } from '@/components/PlanThumbnail';
 import { TemplateGallery } from '@/components/TemplateGallery';
 import { Dialog } from '@/components/ui/dialog';
+import { useSessionStore } from '@/stores/session-store';
 import { cn } from '@/lib/cn';
 
 const FEATURES = [
@@ -29,6 +30,13 @@ export default function DashboardPage() {
   const [confirmDelete, setConfirmDelete] = React.useState<Project | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
+  const account = useSessionStore((s) => (s.session?.kind === 'account' ? s.session : null));
+  const loadAccount = useSessionStore((s) => s.loadAccount);
+  const signOut = useSessionStore((s) => s.signOut);
+
+  React.useEffect(() => {
+    void loadAccount();
+  }, [loadAccount]);
 
   const refresh = React.useCallback(async () => {
     const result = await syncProjectList();
@@ -112,7 +120,9 @@ export default function DashboardPage() {
             </span>
             <div>
               <h1 className="text-xl font-semibold">Interior Studio</h1>
-              <p className="text-sm text-zinc-500">AI-assisted interior design, in your browser</p>
+              <p className="text-sm text-zinc-500">
+                {account ? `Signed in as ${account.name}` : 'AI-assisted interior design, in your browser'}
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -139,6 +149,16 @@ export default function DashboardPage() {
             <button onClick={() => browseTemplates()} className="flex items-center gap-2 rounded-lg bg-sky-600 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-500">
               <Plus className="h-4 w-4" /> New project
             </button>
+            {account && (
+              <button
+                onClick={() => void signOut()}
+                title={`Sign out (${account.email})`}
+                className="flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-2 text-sm font-medium text-zinc-300 hover:bg-zinc-800"
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">Sign out</span>
+              </button>
+            )}
           </div>
         </header>
 

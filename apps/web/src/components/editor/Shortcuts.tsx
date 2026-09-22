@@ -4,6 +4,7 @@ import * as React from 'react';
 import { gridStep } from '@interior/core';
 import { useEditorStore, type Tool } from '@/stores/editor-store';
 import { useUiStore } from '@/stores/ui-store';
+import { sessionCan } from '@/stores/session-store';
 
 const TOOL_KEYS: Record<string, Tool> = {
   v: 'select',
@@ -31,6 +32,18 @@ export const SHORTCUT_GROUPS: { title: string; items: { keys: string; action: st
     ],
   },
   {
+    title: '3D transform (Blender style)',
+    items: [
+      { keys: 'G', action: 'Grab the selected item — it follows the pointer' },
+      { keys: 'R', action: 'Rotate the selection' },
+      { keys: 'S', action: 'Scale the selection' },
+      { keys: 'X / Y', action: 'Lock the running transform to one axis' },
+      { keys: 'type a number', action: 'Exact value, e.g. G X 1.5 moves 1.5 m east' },
+      { keys: 'Ctrl (hold)', action: 'Snap while transforming' },
+      { keys: 'Click / Enter', action: 'Confirm · Esc or right-click cancels' },
+    ],
+  },
+  {
     title: 'Editing',
     items: [
       { keys: 'Delete / Backspace', action: 'Delete selection' },
@@ -48,8 +61,12 @@ export const SHORTCUT_GROUPS: { title: string; items: { keys: string; action: st
       { keys: '1 / 2', action: 'Floor plan / 3D view' },
       { keys: 'F', action: 'Fit view' },
       { keys: 'Scroll', action: 'Zoom' },
-      { keys: 'Middle-drag', action: 'Pan, whatever the active tool is' },
+      { keys: 'Middle-drag', action: 'Plan: pan · 3D: orbit (Blender style)' },
+      { keys: 'Shift + middle-drag', action: '3D: pan' },
       { keys: 'Right-drag (3D)', action: 'Pan the 3D camera' },
+      { keys: 'Numpad 1 / 3 / 7 / 9', action: '3D: front / right / top / back view' },
+      { keys: 'Numpad 5', action: '3D: perspective view' },
+      { keys: 'Numpad . ', action: '3D: frame the selected item' },
       { keys: 'Ctrl + B / Ctrl + ]', action: 'Toggle left / right panel' },
       { keys: 'Ctrl + K', action: 'AI assistant' },
       { keys: 'Ctrl + S', action: 'Save' },
@@ -71,6 +88,21 @@ export function KeyboardShortcuts() {
       const store = useEditorStore.getState();
       const ui = useUiStore.getState();
       const key = e.key.toLowerCase();
+      const canEdit = sessionCan('edit');
+
+      // A running G/R/S transform owns the keyboard: it reads X/Y for axis
+      // locks, digits for exact values, Enter to confirm and Esc to cancel.
+      // Without this, Esc would also clear the selection out from under the
+      // transform, and typing "1" would jump to the floor plan mid-move.
+      if (ui.modalTransform) return;
+
+      // Navigation keys stay live for everyone; anything that would change the
+      // drawing is simply not bound on a read-only session.
+      if (!canEdit) {
+        if ((e.metaKey || e.ctrlKey) && ['s', 'z', 'y', 'k', 'd'].includes(key)) return;
+        if (['Delete', 'Backspace', 'Enter', '[', ']'].includes(e.key)) return;
+        if (e.key.startsWith('Arrow')) return;
+      }
 
       if ((e.metaKey || e.ctrlKey) && key === 's') {
         e.preventDefault();
@@ -193,6 +225,7 @@ export function KeyboardShortcuts() {
 
       const tool = TOOL_KEYS[key];
       if (tool) {
+        if (!canEdit && tool !== 'select' && tool !== 'pan') return;
         // Pan works in both views; the drawing tools need the floor plan.
         if (store.view === '3d' && tool !== 'select' && tool !== 'pan') {
           store.pushToast('Drawing tools work in the floor plan — press 1 to switch', 'info');

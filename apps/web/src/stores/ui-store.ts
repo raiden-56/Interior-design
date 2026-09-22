@@ -50,6 +50,11 @@ interface UiState {
    * too (it has no concept of the 2D tool set).
    */
   spaceHeld: boolean;
+  /**
+   * Live Blender-style transform (G/R/S). Rendered as a read-out over the
+   * canvas, which cannot live inside the WebGL tree.
+   */
+  modalTransform: { mode: 'translate' | 'rotate' | 'scale'; axis: 'x' | 'z' | null; typed: string; readout: string } | null;
 
   toggleLeft: () => void;
   toggleRight: () => void;
@@ -66,6 +71,7 @@ interface UiState {
   setShortcutsOpen: (open: boolean) => void;
   setAiEngine: (info: AiEngineInfo | null) => void;
   setSpaceHeld: (held: boolean) => void;
+  setModalTransform: (t: UiState['modalTransform']) => void;
 }
 
 export const useUiStore = create<UiState>()((set) => ({
@@ -84,6 +90,7 @@ export const useUiStore = create<UiState>()((set) => ({
   shortcutsOpen: false,
   aiEngine: null,
   spaceHeld: false,
+  modalTransform: null,
 
   toggleLeft: () => set((s) => ({ leftOpen: !s.leftOpen })),
   toggleRight: () => set((s) => ({ rightOpen: !s.rightOpen })),
@@ -99,4 +106,5 @@ export const useUiStore = create<UiState>()((set) => ({
   setShortcutsOpen: (open) => set({ shortcutsOpen: open }),
   setAiEngine: (info) => set({ aiEngine: info }),
   setSpaceHeld: (held) => set((s) => (s.spaceHeld === held ? s : { spaceHeld: held })),
+  setModalTransform: (t) => set({ modalTransform: t }),
 }));

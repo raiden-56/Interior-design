@@ -16,7 +16,23 @@ const KEY = 'interior.projects.v1';
  * the server and each save left a duplicate row behind.
  */
 
-export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? 'http://localhost:8000/api/v1').replace(/\/$/, '');
+/**
+ * Project traffic goes through the app's own authenticated proxy
+ * (`/api/backend/*`), which attaches the storage service's credential
+ * server-side. Point `NEXT_PUBLIC_API_BASE` at the service directly only for
+ * local debugging — doing it in production puts the store on the internet.
+ */
+export const API_BASE = (process.env.NEXT_PUBLIC_API_BASE ?? '/api/backend').replace(/\/$/, '');
+
+/**
+ * A client opening a share link has no session, so their read is authorised by
+ * the token itself. The viewer route sets it before loading the project.
+ */
+let shareToken: string | null = null;
+
+export function setShareToken(token: string | null): void {
+  shareToken = token;
+}
 
 // --- local -------------------------------------------------------------------
 
@@ -141,7 +157,10 @@ export async function backendOnline(force = false): Promise<boolean> {
   if (!force && healthCache && Date.now() - healthCache.at < HEALTH_TTL_MS) return healthCache.ok;
   let ok = false;
   try {
-    const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(1500) });
+    const res = await fetch(`${API_BASE}/health`, {
+      signal: AbortSignal.timeout(2500),
+      headers: shareToken ? { 'x-share-token': shareToken } : undefined,
+    });
     ok = res.ok;
   } catch {
     ok = false;
@@ -153,7 +172,11 @@ export async function backendOnline(force = false): Promise<boolean> {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
-    headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
+    headers: {
+      'Content-Type': 'application/json',
+      ...(shareToken ? { 'x-share-token': shareToken } : {}),
+      ...(init?.headers ?? {}),
+    },
     signal: init?.signal ?? AbortSignal.timeout(6000),
   });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);

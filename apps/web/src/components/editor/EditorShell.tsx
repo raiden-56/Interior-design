@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic';
 import { AlertTriangle, CheckCircle2, Info } from 'lucide-react';
 import { useEditorStore } from '@/stores/editor-store';
 import { useUiStore } from '@/stores/ui-store';
+import { useCan, useIsShareSession, useSessionStore } from '@/stores/session-store';
 import { fetchAiStatus } from '@/lib/ai';
 import { cn } from '@/lib/cn';
 import { TopBar } from './TopBar';
@@ -15,6 +16,7 @@ import { AiAssistant } from './AiAssistant';
 import { KeyboardShortcuts } from './Shortcuts';
 import { ShortcutsDialog } from './ShortcutsDialog';
 import { CanvasErrorBoundary } from './CanvasErrorBoundary';
+import { ClientSummaryPanel } from './ClientSummaryPanel';
 
 const Canvas2D = dynamic(() => import('./Canvas2D').then((m) => m.Canvas2D), { ssr: false, loading: () => <CanvasLoading label="Loading 2D engine…" /> });
 const Canvas3D = dynamic(() => import('./Canvas3D').then((m) => m.Canvas3D), { ssr: false, loading: () => <CanvasLoading label="Loading 3D engine…" /> });
@@ -25,6 +27,16 @@ export function EditorShell() {
   const rightOpen = useUiStore((s) => s.rightOpen);
   const aiOpen = useUiStore((s) => s.aiOpen);
   const setAiEngine = useUiStore((s) => s.setAiEngine);
+  const canEdit = useCan('edit');
+  const canUseAi = useCan('ai');
+  const isShare = useIsShareSession();
+
+  // A share session is set by the viewer route before this mounts; an account
+  // session has to be fetched once so the UI knows what to offer.
+  React.useEffect(() => {
+    if (useSessionStore.getState().session?.kind === 'share') return;
+    void useSessionStore.getState().loadAccount();
+  }, []);
 
   // Only interrupt navigation when there is genuinely unsaved work. The
   // previous handler prompted "Leave site?" unconditionally, even seconds
@@ -32,17 +44,18 @@ export function EditorShell() {
   React.useEffect(() => {
     const onBeforeUnload = (e: BeforeUnloadEvent) => {
       const store = useEditorStore.getState();
-      if (!store.dirty) return;
+      if (!store.dirty || !canEdit) return;
       store.save();
       e.preventDefault();
       e.returnValue = '';
     };
     window.addEventListener('beforeunload', onBeforeUnload);
     return () => window.removeEventListener('beforeunload', onBeforeUnload);
-  }, []);
+  }, [canEdit]);
 
   // Which AI engine the assistant will use — shown in its header.
   React.useEffect(() => {
+    if (!canUseAi) return;
     let cancelled = false;
     void fetchAiStatus().then((status) => {
       if (!cancelled) setAiEngine(status);
@@ -50,13 +63,14 @@ export function EditorShell() {
     return () => {
       cancelled = true;
     };
-  }, [setAiEngine]);
+  }, [setAiEngine, canUseAi]);
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#090b10] text-zinc-200">
       <TopBar />
       <div className="flex min-h-0 flex-1">
-        {leftOpen && <LeftPanel />}
+        {/* The catalog, structure and material tabs are all editing tools. */}
+        {leftOpen && canEdit && <LeftPanel />}
         <main className="relative min-w-0 flex-1 overflow-hidden bg-[#0c0f14]">
           {view === '2d' ? (
             <CanvasErrorBoundary label="floor plan">
@@ -67,11 +81,14 @@ export function EditorShell() {
               <Canvas3D />
             </CanvasErrorBoundary>
           )}
-          {aiOpen && <AiAssistant />}
+          {aiOpen && canUseAi && <AiAssistant />}
+          <ModalTransformHud />
           <ViewSwitchOverlay />
           <ToolHint />
         </main>
-        {rightOpen && <RightPanel />}
+        {/* Clients get a read-only schedule of the design instead of the
+            property editor: the numbers they care about, nothing to break. */}
+        {rightOpen && (canEdit ? <RightPanel /> : <ClientSummaryPanel />)}
       </div>
       <BottomBar />
       <Toasts />
@@ -103,9 +120,15 @@ function ToolHint() {
   const pending = useUiStore((s) => s.pendingAsset);
   const measuring = useUiStore((s) => s.measureWidget.active);
   const spacePan = useUiStore((s) => s.spaceHeld);
+  const canEdit = useCan('edit');
 
   let text: string;
-  if (pending) {
+  if (!canEdit) {
+    text =
+      view === '3d'
+        ? 'Left-drag to look around · Middle-drag or Space-drag to pan · Scroll to zoom · Press 1 for the floor plan'
+        : 'Hold Space and drag to pan · Scroll to zoom · Press 2 for the 3D walkthrough';
+  } else if (pending) {
     text = `Click where to place ${pending.name} · Esc to cancel`;
   } else if (spacePan) {
     text = 'Space held — drag to pan the view · release to go back to the ' + (view === '3d' ? '3D' : 'plan') + ' tool';
@@ -145,6 +168,25 @@ function ToolHint() {
   return (
     <div className="pointer-events-none absolute bottom-3 left-1/2 z-10 max-w-[90%] -translate-x-1/2 select-none truncate rounded-md bg-black/45 px-3 py-1.5 text-[11px] text-zinc-300 backdrop-blur">
       {text}
+    </div>
+  );
+}
+
+/**
+ * Read-out for a running G/R/S transform: which mode, which axis is locked,
+ * and the exact delta. Blender puts the same information in the header — it is
+ * what turns "drag until it looks right" into a measured move.
+ */
+function ModalTransformHud() {
+  const modal = useUiStore((s) => s.modalTransform);
+  if (!modal) return null;
+  const verb = modal.mode === 'translate' ? 'Move' : modal.mode === 'rotate' ? 'Rotate' : 'Scale';
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-3 z-20 flex -translate-x-1/2 items-center gap-2 rounded-md border border-sky-500/40 bg-[#0d1016]/95 px-3 py-1.5 text-[11px] text-zinc-200 shadow-xl backdrop-blur">
+      <span className="font-semibold text-sky-300">{verb}</span>
+      {modal.axis && <span className="rounded bg-sky-500/20 px-1.5 py-0.5 font-medium text-sky-200">{modal.axis === 'x' ? 'X axis' : 'Y axis'}</span>}
+      <span className="tabular-nums">{modal.typed ? modal.typed : modal.readout}</span>
+      <span className="text-zinc-500">· click or Enter to confirm · Esc to cancel</span>
     </div>
   );
 }

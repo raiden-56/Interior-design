@@ -3,6 +3,7 @@
 import * as React from 'react';
 import { useEditorStore, useActiveFloor } from '@/stores/editor-store';
 import { useUiStore } from '@/stores/ui-store';
+import { sessionCan } from '@/stores/session-store';
 import { registerCapturer } from '@/lib/capture';
 import { PlanEditor2D } from './PlanEditor2D';
 
@@ -43,6 +44,7 @@ export function Canvas2D() {
           units: edit.project.units,
           warnings: edit.collisionWarnings,
           spacePan: useUiStore.getState().spaceHeld,
+          readOnly: !sessionCan('edit'),
           pendingAsset: useUiStore.getState().pendingAsset,
         };
       },

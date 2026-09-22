@@ -2,10 +2,11 @@
 
 import * as React from 'react';
 import * as THREE from 'three';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas, useThree, useFrame } from '@react-three/fiber';
 import { OrbitControls, TransformControls, Grid } from '@react-three/drei';
 import { useEditorStore } from '@/stores/editor-store';
 import { useUiStore } from '@/stores/ui-store';
+import { sessionCan, useCan } from '@/stores/session-store';
 import {
   buildScene,
   disposeScene,
@@ -16,6 +17,7 @@ import {
 } from '@/lib/three/scene';
 import { MeshPool, LIGHT_PRESETS, buildFurnitureMesh, placeFurniture, appearanceKey } from '@/lib/three/meshes';
 import { registerCapturer } from '@/lib/capture';
+import { ModalTransform } from './ModalTransform';
 
 export function Canvas3D() {
   const renderPreset = useUiStore((s) => s.renderPreset);
@@ -60,6 +62,68 @@ interface Session {
 /** Pointer travel (px) above which a press counts as a drag, not a click. */
 const CLICK_SLOP = 4;
 
+/** How long a preset / framing move takes. Long enough to read, short enough not to wait. */
+const FLY_MS = 480;
+
+const easeInOutCubic = (t: number): number => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
+
+interface Flight {
+  fromPos: THREE.Vector3;
+  toPos: THREE.Vector3;
+  fromTarget: THREE.Vector3;
+  toTarget: THREE.Vector3;
+  start: number;
+  duration: number;
+}
+
+/**
+ * Eased camera moves.
+ *
+ * Jumping the camera between viewpoints loses people: they cannot tell whether
+ * they are looking at the same room from a new angle or at something else
+ * entirely. Flying there over half a second keeps the space legible — the same
+ * reason Blender animates its numpad view changes.
+ */
+function useCameraFlight(camera: THREE.Camera, controls: any, invalidate: () => void) {
+  const flight = React.useRef<Flight | null>(null);
+
+  useFrame(() => {
+    const f = flight.current;
+    if (!f) return;
+    const k = Math.min(1, (performance.now() - f.start) / f.duration);
+    const e = easeInOutCubic(k);
+    camera.position.lerpVectors(f.fromPos, f.toPos, e);
+    if (controls?.target) {
+      controls.target.lerpVectors(f.fromTarget, f.toTarget, e);
+      controls.update();
+    } else {
+      camera.lookAt(f.toTarget);
+    }
+    if (k >= 1) flight.current = null;
+    invalidate();
+  });
+
+  return React.useCallback(
+    (toPos: THREE.Vector3, toTarget: THREE.Vector3, immediate = false) => {
+      const from = camera.position.clone();
+      const fromTarget = controls?.target ? controls.target.clone() : new THREE.Vector3();
+      if (immediate || from.distanceTo(toPos) < 0.01) {
+        camera.position.copy(toPos);
+        if (controls?.target) {
+          controls.target.copy(toTarget);
+          controls.update();
+        } else camera.lookAt(toTarget);
+        flight.current = null;
+        invalidate();
+        return;
+      }
+      flight.current = { fromPos: from, toPos: toPos.clone(), fromTarget, toTarget: toTarget.clone(), start: performance.now(), duration: FLY_MS };
+      invalidate();
+    },
+    [camera, controls, invalidate],
+  );
+}
+
 function EditorRig() {
   const { scene, camera, gl, invalidate, controls } = useThree();
   const sessionRef = React.useRef<Session | null>(null);
@@ -91,6 +155,7 @@ function EditorRig() {
   const cameraNonce = useUiStore((s) => s.cameraNonce);
   const transformMode = useUiStore((s) => s.transformMode);
   const spaceHeld = useUiStore((s) => s.spaceHeld);
+  const canEdit = useCan('edit');
   /**
    * Left-drag pans instead of orbiting while Space is held or the Hand tool is
    * active — the same gesture as the floor plan, so switching views does not
@@ -271,7 +336,7 @@ function EditorRig() {
       toNdc(e);
 
       // Placing furniture from the catalog.
-      const pending = useUiStore.getState().pendingAsset;
+      const pending = sessionCan('edit') ? useUiStore.getState().pendingAsset : null;
       if (pending) {
         const ground = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
         const hit = new THREE.Vector3();
@@ -341,10 +406,84 @@ function EditorRig() {
     };
   }, [camera, gl, invalidate]);
 
+  // Every camera move (preset, fit, numpad view) eases through this.
+  const flyTo = useCameraFlight(camera, controls, invalidate);
+
   // Space produces no pointer event, so the hand cursor needs its own effect.
   React.useEffect(() => {
     gl.domElement.style.cursor = panMode ? 'grab' : '';
   }, [panMode, gl]);
+
+  /**
+   * Blender's modifier on the middle mouse button: plain middle-drag orbits,
+   * Shift+middle pans. OrbitControls maps buttons statically, so the mapping
+   * is swapped in the capture phase, before it reads the event.
+   */
+  React.useEffect(() => {
+    const el = gl.domElement;
+    const onDown = (e: PointerEvent) => {
+      const controls = controlsRef.current;
+      if (!controls || e.button !== 1) return;
+      controls.mouseButtons.MIDDLE = e.shiftKey ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+    };
+    el.addEventListener('pointerdown', onDown, true);
+    return () => el.removeEventListener('pointerdown', onDown, true);
+  }, [gl]);
+
+  /**
+   * Numpad viewpoints, as in Blender: 1 front, 3 right, 7 top, 9 back,
+   * 5 perspective, and `.` to frame the selection. They use `event.code`, so
+   * the top-row digits that switch between the plan and 3D keep working.
+   */
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const el = e.target as HTMLElement | null;
+      if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      // Numpad digits are exact values while a transform is running.
+      if (useUiStore.getState().modalTransform) return;
+
+      const bounds = sceneBounds(useEditorStore.getState().project, activeFloorId);
+      const mid = (bounds.y0 + bounds.y1) / 2;
+      const d = Math.max(bounds.span, 4) * 1.35;
+      const centre = new THREE.Vector3(bounds.cx, mid, bounds.cz);
+
+      switch (e.code) {
+        case 'Numpad1':
+          flyTo(new THREE.Vector3(bounds.cx, mid + 1.2, bounds.cz - d), centre);
+          break;
+        case 'Numpad3':
+          flyTo(new THREE.Vector3(bounds.cx + d, mid + 1.2, bounds.cz), centre);
+          break;
+        case 'Numpad7':
+          flyTo(new THREE.Vector3(bounds.cx, bounds.y1 + d, bounds.cz + 0.001), centre);
+          break;
+        case 'Numpad9':
+          flyTo(new THREE.Vector3(bounds.cx, mid + 1.2, bounds.cz + d), centre);
+          break;
+        case 'Numpad5':
+          flyTo(new THREE.Vector3(bounds.cx + d * 0.8, mid + d * 0.7, bounds.cz + d * 0.8), centre);
+          break;
+        case 'NumpadDecimal':
+        case 'Period': {
+          // Frame whatever is selected, the way `.` does in Blender.
+          const sel = useEditorStore.getState().selection[0];
+          const floor = useEditorStore.getState().project.floors.find((f) => f.id === activeFloorId);
+          const obj = floor?.objects.find((o) => o.id === sel);
+          if (!obj) return;
+          const focus = new THREE.Vector3(obj.x, obj.height / 2, obj.z);
+          const reach = Math.max(obj.width, obj.depth, 1) * 3;
+          flyTo(new THREE.Vector3(obj.x + reach, obj.height + reach * 0.8, obj.z + reach), focus);
+          break;
+        }
+        default:
+          return;
+      }
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeFloorId, flyTo]);
 
   // --- camera presets --------------------------------------------------------
   React.useEffect(() => {
@@ -353,9 +492,10 @@ function EditorRig() {
       // Initial mount is framed by the effect below; a later click on the
       // perspective button (or the Fit button / F key) re-frames the scene.
       if (cameraNonce === 0) return;
-      camera.position.set(target.cx + target.span * 1.1, target.mid + target.span * 0.9, target.cz + target.span * 1.1);
-      camLookAt(camera, controls, new THREE.Vector3(target.cx, target.mid, target.cz));
-      invalidate();
+      flyTo(
+        new THREE.Vector3(target.cx + target.span * 1.1, target.mid + target.span * 0.9, target.cz + target.span * 1.1),
+        new THREE.Vector3(target.cx, target.mid, target.cz),
+      );
       return;
     }
     const distance = Math.max(target.span, 4) * 1.35;
@@ -368,12 +508,11 @@ function EditorRig() {
     } else {
       pos = new THREE.Vector3(target.cx, mid + 1.5, target.cz - distance);
     }
-    camera.position.copy(pos);
-    camLookAt(camera, controls, new THREE.Vector3(target.cx, mid, target.cz));
-    invalidate();
+    flyTo(pos, new THREE.Vector3(target.cx, mid, target.cz));
     // Framing follows the view buttons, not every model edit — depending on
     // `project` here yanked the camera back mid-edit.
-  }, [cameraPreset, cameraNonce, activeFloorId, camera, controls, invalidate]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraPreset, cameraNonce, activeFloorId]);
 
   // --- initial framing once ----------------------------------------------------
   const didFrame = React.useRef(false);
@@ -381,9 +520,11 @@ function EditorRig() {
     if (didFrame.current) return;
     didFrame.current = true;
     const target = sceneBounds(project, activeFloorId);
-    camera.position.set(target.cx + target.span * 1.1, target.mid + target.span * 0.9, target.cz + target.span * 1.1);
-    camLookAt(camera, controls, new THREE.Vector3(target.cx, target.mid, target.cz));
-    invalidate();
+    flyTo(
+      new THREE.Vector3(target.cx + target.span * 1.1, target.mid + target.span * 0.9, target.cz + target.span * 1.1),
+      new THREE.Vector3(target.cx, target.mid, target.cz),
+      true,
+    );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -455,23 +596,38 @@ function EditorRig() {
     invalidate();
   }, [selObject, transformMode, invalidate]);
 
-  const showGizmo = selKind === 'object' && selObject != null && selection.length === 1 && tool === 'select';
+  // A client can select a piece to read its size, but gets no handles.
+  const showGizmo = canEdit && selKind === 'object' && selObject != null && selection.length === 1 && tool === 'select';
 
   return (
     <>
       <OrbitControls
         ref={controlsRef}
         makeDefault
+        // Blender's feel: weighted damping, zoom that homes in on whatever is
+        // under the cursor, and panning in screen space rather than along the
+        // ground plane, so dragging moves what you are looking at.
         enableDamping
-        dampingFactor={0.08}
+        dampingFactor={0.075}
+        rotateSpeed={0.85}
+        panSpeed={0.9}
+        zoomSpeed={0.9}
+        zoomToCursor
+        screenSpacePanning
+        minDistance={0.6}
+        maxDistance={220}
+        maxPolarAngle={Math.PI * 0.499}
         mouseButtons={{
+          // Middle-drag orbits like Blender; Shift+middle pans (swapped in
+          // the pointer handler below). Right-drag always pans.
           LEFT: panMode ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE,
-          MIDDLE: THREE.MOUSE.DOLLY,
+          MIDDLE: THREE.MOUSE.ROTATE,
           RIGHT: THREE.MOUSE.PAN,
         }}
         onStart={() => invalidate()}
         onChange={() => invalidate()}
       />
+      <ModalTransform object={selObject} objectId={selection[0] ?? null} enabled={canEdit && selKind === 'object' && selection.length === 1} />
       <Grid
         position={[0, -0.005, 0]}
         args={[10, 10]}

@@ -15,3 +15,6 @@ venv/
 *.sqlite3
 .DS_Store
 npm-debug.log*
+
+# Marketing site build output
+dist-ssr/

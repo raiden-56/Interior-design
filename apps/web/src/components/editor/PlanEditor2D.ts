@@ -38,6 +38,8 @@ export interface PlanStoreReader {
   warnings: import('@interior/core').CollisionWarning[];
   /** Space is held: any left-drag pans, whatever the active tool is. */
   spacePan: boolean;
+  /** Read-only session: look and select, nothing else. */
+  readOnly: boolean;
   pendingAsset: { assetId: string; name: string; shape: string; width: number; depth: number; height: number; color: string | null; mounted?: boolean } | null;
 }
 
@@ -71,6 +73,24 @@ export class PlanEditor2D {
   private hoveredId: string[] = [];
   private activeWall: Wall | null = null;
   private activeOffset = 0;
+
+  /**
+   * Smooth navigation state.
+   *
+   * The plan used to jump: one wheel notch, one hard scale change, and a pan
+   * that stopped dead the instant the button came up. Both now run through a
+   * single animation loop — zoom eases toward a target while keeping the point
+   * under the cursor pinned, and a flick leaves the view gliding to a stop.
+   * It is the difference between reading a drawing and fighting one.
+   */
+  private zoomTarget = 80;
+  /** World point to keep under the cursor while a zoom eases in. */
+  private zoomAnchor: { world: Vec2; screen: { x: number; y: number } } | null = null;
+  /** World units per millisecond, sampled during a pan drag. */
+  private panVelocity: Vec2 = { x: 0, y: 0 };
+  private lastPanAt = 0;
+  private cameraTween: { from: Camera; to: Camera; start: number; duration: number } | null = null;
+  private rafId: number | null = null;
 
   private onCommand: (cmd: Command) => void;
   private onSelect: (ids: string[]) => void;
@@ -148,6 +168,8 @@ export class PlanEditor2D {
 
   destroy(): void {
     this.destroyed = true;
+    if (this.rafId !== null) cancelAnimationFrame(this.rafId);
+    this.rafId = null;
     const app = this.app;
     if (app && app.renderer) {
       const canvas = app.canvas;
@@ -180,6 +202,7 @@ export class PlanEditor2D {
     const sy = clientY - rect.top;
     const world = this.screenToWorld(clientX, clientY);
     this.camera.scale = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, this.camera.scale * factor));
+    this.zoomTarget = this.camera.scale;
     this.camera.x = world.x - (sx - this.app.screen.width / 2) / this.camera.scale;
     this.camera.y = world.y - (sy - this.app.screen.height / 2) / this.camera.scale;
     this.requestRedraw();
@@ -202,10 +225,97 @@ export class PlanEditor2D {
     const minY = Math.min(...ys) - 1.5;
     const maxY = Math.max(...ys) + 1.5;
     const scale = Math.min((this.app.screen.width - 60) / Math.max(maxX - minX, 1e-3), (this.app.screen.height - 60) / Math.max(maxY - minY, 1e-3));
-    this.camera.scale = Math.max(Math.min(scale, 250), 20);
-    this.camera.x = (minX + maxX) / 2;
-    this.camera.y = (minY + maxY) / 2;
-    this.requestRedraw();
+    const to: Camera = {
+      scale: Math.max(Math.min(scale, 250), 20),
+      x: (minX + maxX) / 2,
+      y: (minY + maxY) / 2,
+    };
+    // First fit (nothing drawn yet) should be instant; later ones fly.
+    if (!this.rafId && this.camera.scale === 80 && this.camera.x === -1) {
+      this.camera = to;
+      this.zoomTarget = to.scale;
+      this.requestRedraw();
+      return;
+    }
+    this.flyTo(to);
+  }
+
+  /**
+   * One loop for every kind of motion: an easing zoom, pan momentum, and the
+   * flight between two camera positions. It runs only while something is
+   * actually moving and stops on its own, so an idle plan costs nothing.
+   */
+  private step = (): void => {
+    this.rafId = null;
+    if (this.destroyed || !this.app?.renderer) return;
+    let busy = false;
+    const now = performance.now();
+
+    if (this.cameraTween) {
+      const t = this.cameraTween;
+      const k = Math.min(1, (now - t.start) / t.duration);
+      const e = k < 0.5 ? 4 * k * k * k : 1 - Math.pow(-2 * k + 2, 3) / 2;
+      this.camera.x = t.from.x + (t.to.x - t.from.x) * e;
+      this.camera.y = t.from.y + (t.to.y - t.from.y) * e;
+      this.camera.scale = t.from.scale + (t.to.scale - t.from.scale) * e;
+      this.zoomTarget = this.camera.scale;
+      if (k >= 1) this.cameraTween = null;
+      busy = busy || this.cameraTween !== null;
+    } else {
+      // Zoom: approach the target geometrically, then pin the anchor point.
+      const ratio = this.zoomTarget / this.camera.scale;
+      if (Math.abs(Math.log(ratio)) > 0.002) {
+        this.camera.scale *= Math.pow(ratio, 0.28);
+        const anchor = this.zoomAnchor;
+        if (anchor) {
+          this.camera.x = anchor.world.x - (anchor.screen.x - this.app.screen.width / 2) / this.camera.scale;
+          this.camera.y = anchor.world.y - (anchor.screen.y - this.app.screen.height / 2) / this.camera.scale;
+        }
+        busy = true;
+      } else if (this.camera.scale !== this.zoomTarget) {
+        this.camera.scale = this.zoomTarget;
+        const anchor = this.zoomAnchor;
+        if (anchor) {
+          this.camera.x = anchor.world.x - (anchor.screen.x - this.app.screen.width / 2) / this.camera.scale;
+          this.camera.y = anchor.world.y - (anchor.screen.y - this.app.screen.height / 2) / this.camera.scale;
+        }
+        busy = true;
+      }
+
+      // Momentum: glide on after the drag ends, decaying frame by frame.
+      const v = this.panVelocity;
+      if (!this.dragging && (Math.abs(v.x) > 1e-4 || Math.abs(v.y) > 1e-4)) {
+        this.camera.x -= v.x * 16;
+        this.camera.y -= v.y * 16;
+        v.x *= 0.9;
+        v.y *= 0.9;
+        if (Math.abs(v.x) < 1e-4 && Math.abs(v.y) < 1e-4) {
+          v.x = 0;
+          v.y = 0;
+        }
+        busy = true;
+      }
+    }
+
+    if (busy) {
+      this.redraw();
+      this.startLoop();
+    } else {
+      this.requestRedraw();
+    }
+  };
+
+  private startLoop(): void {
+    if (this.rafId === null && !this.destroyed) this.rafId = requestAnimationFrame(this.step);
+  }
+
+  /** Eases the camera to an exact position and zoom (used by Fit view). */
+  private flyTo(to: Camera, duration = 420): void {
+    this.panVelocity = { x: 0, y: 0 };
+    this.zoomTarget = to.scale;
+    this.zoomAnchor = null;
+    this.cameraTween = { from: { ...this.camera }, to, start: performance.now(), duration };
+    this.startLoop();
   }
 
   /**
@@ -293,9 +403,20 @@ export class PlanEditor2D {
     // read per gesture rather than by swapping the active tool, so the tool the
     // user picked is still active the moment they let go.
     if (e.button === 1 || ((s.tool === 'pan' || s.spacePan) && e.button === 0)) {
+      this.panVelocity = { x: 0, y: 0 };
+      this.cameraTween = null;
+      this.lastPanAt = performance.now();
       this.dragging = { mode: 'pan' };
       this.app.canvas.setPointerCapture(e.pointerId);
       this.app.canvas.style.cursor = 'grabbing';
+      return;
+    }
+
+    // A client can still click to inspect, but nothing they do moves a wall.
+    if (s.readOnly) {
+      const hit = this.pick(world);
+      this.onSelect(hit ? [hit.id] : []);
+      this.requestRedraw();
       return;
     }
 
@@ -383,8 +504,19 @@ export class PlanEditor2D {
     const drag = this.dragging;
     if (drag) {
       if (drag.mode === 'pan') {
-        this.camera.x -= e.movementX / this.camera.scale;
-        this.camera.y -= e.movementY / this.camera.scale;
+        const dx = e.movementX / this.camera.scale;
+        const dy = e.movementY / this.camera.scale;
+        this.camera.x -= dx;
+        this.camera.y -= dy;
+        // Sample the speed so releasing the button can carry the view on.
+        const now = performance.now();
+        const dt = Math.max(now - this.lastPanAt, 1);
+        this.lastPanAt = now;
+        const blend = dt < 60 ? 0.25 : 1;
+        this.panVelocity = {
+          x: this.panVelocity.x * (1 - blend) + (dx / dt) * blend,
+          y: this.panVelocity.y * (1 - blend) + (dy / dt) * blend,
+        };
       } else if (drag.mode === 'wall-end') {
         // The store's wall is left untouched during the drag: mutating it in
         // place meant the UPDATE_WALL committed on release captured the
@@ -435,6 +567,9 @@ export class PlanEditor2D {
       return;
     }
     if (drag?.mode === 'pan') {
+      // Stale samples mean a pause before release should stop the view dead.
+      if (performance.now() - this.lastPanAt > 90) this.panVelocity = { x: 0, y: 0 };
+      this.startLoop();
       this.syncCursor();
       return;
     }
@@ -480,8 +615,18 @@ export class PlanEditor2D {
 
   private onWheel = (e: WheelEvent): void => {
     e.preventDefault();
+    // A trackpad sends many small deltas and a wheel a few large ones; both
+    // feed the same target, which the loop then eases toward.
     const factor = Math.exp(-e.deltaY * 0.0015);
-    this.zoomAt(factor, e.clientX, e.clientY);
+    const rect = this.app.canvas.getBoundingClientRect();
+    this.cameraTween = null;
+    this.panVelocity = { x: 0, y: 0 };
+    this.zoomAnchor = {
+      world: this.screenToWorld(e.clientX, e.clientY),
+      screen: { x: e.clientX - rect.left, y: e.clientY - rect.top },
+    };
+    this.zoomTarget = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, this.zoomTarget * factor));
+    this.startLoop();
   };
 
   private onDoubleClick = (): void => {
