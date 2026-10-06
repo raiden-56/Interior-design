@@ -22,7 +22,7 @@ import {
   snapPoint,
   wallLength,
 } from '@interior/core';
-import { drawPlan } from '../../lib/pixi/pixi-draw';
+import { drawPlan, pointOnUnderlay } from '../../lib/pixi/pixi-draw';
 import type { PlanState } from '../../lib/pixi/pixi-draw';
 import type { Camera, PlanTool, MeasureState } from '../../lib/plan-types';
 
@@ -47,7 +47,8 @@ type DragState =
   | { mode: 'pan' }
   | { mode: 'object'; id: string }
   | { mode: 'wall-end'; id: string; which: 'a' | 'b'; ghost: { a: Vec2; b: Vec2 } }
-  | { mode: 'marquee'; start: Vec2; current: Vec2 };
+  | { mode: 'marquee'; start: Vec2; current: Vec2 }
+  | { mode: 'underlay'; start: Vec2; origin: { x: number; y: number }; current: { x: number; y: number } };
 
 interface Draft {
   kind: 'wall' | 'room';
@@ -356,6 +357,7 @@ export class PlanEditor2D {
       wallOverride = { id: drag.id, a: drag.ghost.a, b: drag.ghost.b };
     }
     const marquee = drag?.mode === 'marquee' ? { start: drag.start, current: drag.current } : null;
+    const underlayOverride = drag?.mode === 'underlay' ? drag.current : null;
 
     const state: PlanState = {
       project: s.project,
@@ -377,6 +379,8 @@ export class PlanEditor2D {
       measure: s.measure,
       tool: s.tool,
       warnings: s.warnings,
+      underlayOverride,
+      onAssetReady: () => this.requestRedraw(),
     };
     drawPlan(this.root, state);
   }
@@ -446,7 +450,15 @@ export class PlanEditor2D {
           this.onSelect([hit.id]);
         } else if (!e.shiftKey) {
           this.onSelect([]);
-          this.dragging = { mode: 'marquee', start: world, current: world };
+          // Nothing under the pointer: an unlocked paper sketch can be dragged
+          // into place; otherwise start a box selection.
+          const u = this.floor().underlay;
+          if (u && u.visible && !u.locked && pointOnUnderlay(u, world)) {
+            this.dragging = { mode: 'underlay', start: world, origin: { x: u.x, y: u.y }, current: { x: u.x, y: u.y } };
+            this.app.canvas.style.cursor = 'move';
+          } else {
+            this.dragging = { mode: 'marquee', start: world, current: world };
+          }
         }
         break;
       }
@@ -531,6 +543,8 @@ export class PlanEditor2D {
         drag.ghost = drag.which === 'a' ? { a: snapped.point, b: drag.ghost.b } : { a: drag.ghost.a, b: snapped.point };
       } else if (drag.mode === 'marquee') {
         drag.current = this.pointer;
+      } else if (drag.mode === 'underlay') {
+        drag.current = { x: drag.origin.x + (this.pointer.x - drag.start.x), y: drag.origin.y + (this.pointer.y - drag.start.y) };
       }
     } else if (this.drafted?.kind === 'wall' && this.drafted.points.length === 1) {
       // preview handled by redraw
@@ -563,6 +577,18 @@ export class PlanEditor2D {
     if (drag?.mode === 'marquee') {
       const ids = this.selectInRect(drag.start, drag.current);
       if (ids.length > 0) this.onSelect(ids);
+      this.requestRedraw();
+      return;
+    }
+    if (drag?.mode === 'underlay') {
+      const floor = this.floor();
+      const u = floor.underlay;
+      const moved = Math.abs(drag.current.x - drag.origin.x) > 1e-4 || Math.abs(drag.current.y - drag.origin.y) > 1e-4;
+      if (u && moved) {
+        const x = Math.round(drag.current.x * 1000) / 1000;
+        const y = Math.round(drag.current.y * 1000) / 1000;
+        this.onCommand({ type: 'UPDATE_FLOOR', id: floor.id, patch: { underlay: { ...u, x, y } } });
+      }
       this.requestRedraw();
       return;
     }

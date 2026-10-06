@@ -10,22 +10,31 @@ import { sessionCan, useCan } from '@/stores/session-store';
 import {
   buildScene,
   disposeScene,
+  setSceneInvalidator,
   structureSignature,
   syncInstancedPlant,
   tagObject,
   type InstancedBatch,
 } from '@/lib/three/scene';
 import { MeshPool, LIGHT_PRESETS, buildFurnitureMesh, placeFurniture, appearanceKey } from '@/lib/three/meshes';
-import { registerCapturer } from '@/lib/capture';
+import { registerCapturer, registerImageCapturer } from '@/lib/capture';
 import { ModalTransform } from './ModalTransform';
+import { useWalkthroughStore } from '@/stores/walkthrough-store';
+import { WalkthroughRig } from '@/components/walkthrough/WalkthroughMode';
+import { SpawnMarkers } from '@/components/walkthrough/SpawnMarkers';
+import { newSpawnId } from '@/components/walkthrough/SpawnPoint';
 
 export function Canvas3D() {
   const renderPreset = useUiStore((s) => s.renderPreset);
   const preset = LIGHT_PRESETS[renderPreset];
+  // The editor renders on demand; a walkthrough is a simulation and needs
+  // every frame. Switching the loop mode is all it takes — same canvas,
+  // same scene, same camera.
+  const walking = useWalkthroughStore((s) => s.phase !== 'off');
 
   return (
     <Canvas
-      frameloop="demand"
+      frameloop={walking ? 'always' : 'demand'}
       shadows
       dpr={[1, 1.5]}
       gl={{ antialias: true, preserveDrawingBuffer: true }}
@@ -156,6 +165,7 @@ function EditorRig() {
   const transformMode = useUiStore((s) => s.transformMode);
   const spaceHeld = useUiStore((s) => s.spaceHeld);
   const canEdit = useCan('edit');
+  const walking = useWalkthroughStore((s) => s.phase !== 'off');
   /**
    * Left-drag pans instead of orbiting while Space is held or the Hand tool is
    * active — the same gesture as the floor plan, so switching views does not
@@ -190,6 +200,11 @@ function EditorRig() {
     scene.add(session.group);
     invalidate();
   }, [scene, structureKey, activeFloorId, invalidate]);
+
+  React.useEffect(() => {
+    setSceneInvalidator(invalidate);
+    return () => setSceneInvalidator(null);
+  }, [invalidate]);
 
   // Release pooled materials when the canvas goes away.
   React.useEffect(() => {
@@ -327,6 +342,8 @@ function EditorRig() {
       pointerStart.current = null;
       const session = sessionRef.current;
       if (!start || !session) return;
+      // The walkthrough owns the pointer while it runs.
+      if (useWalkthroughStore.getState().phase !== 'off') return;
 
       if (isTransforming.current || gizmoRecent.current || tcRef.current?.dragging) return;
       // A click that only moved the camera must not change the selection.
@@ -334,6 +351,27 @@ function EditorRig() {
       if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > CLICK_SLOP) return;
 
       toNdc(e);
+
+      // Placing a walkthrough start point: the click lands on the active
+      // floor's level and the marker faces the way the camera looks.
+      if (sessionCan('edit') && useUiStore.getState().pendingSpawn) {
+        const store = useEditorStore.getState();
+        const floor = store.project.floors.find((f) => f.id === store.activeFloorId) ?? store.project.floors[0];
+        const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -floor.elevation);
+        const hit = new THREE.Vector3();
+        if (raycaster.ray.intersectPlane(plane, hit)) {
+          const dir = camera.getWorldDirection(new THREE.Vector3());
+          const yaw = Math.round(Math.atan2(-dir.x, -dir.z) * 1000) / 1000;
+          const wt = store.project.walkthrough ?? { spawns: [], startSpawnId: null };
+          const id = newSpawnId();
+          const spawn = { id, name: `Start ${wt.spawns.length + 1}`, floorId: floor.id, x: round2(hit.x), z: round2(hit.z), yaw };
+          store.run({ type: 'UPDATE_PROJECT', patch: { walkthrough: { spawns: [...wt.spawns, spawn], startSpawnId: id } } }, 'Set walkthrough start');
+          store.pushToast('Walkthrough start placed — Walk starts here now', 'success');
+        }
+        useUiStore.getState().setPendingSpawn(false);
+        invalidate();
+        return;
+      }
 
       // Placing furniture from the catalog.
       const pending = sessionCan('edit') ? useUiStore.getState().pendingAsset : null;
@@ -385,6 +423,11 @@ function EditorRig() {
       if (isTransforming.current) return;
       const session = sessionRef.current;
       if (!session) return;
+      if (useWalkthroughStore.getState().phase !== 'off') return;
+      if (useUiStore.getState().pendingSpawn) {
+        gl.domElement.style.cursor = 'crosshair';
+        return;
+      }
       toNdc(e);
       const hits = raycaster.intersectObject(session.group, true);
       const over = hits.some((h) => resolveHit(h) !== null);
@@ -442,6 +485,8 @@ function EditorRig() {
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       // Numpad digits are exact values while a transform is running.
       if (useUiStore.getState().modalTransform) return;
+      // 1/2/3 switch camera modes inside the walkthrough.
+      if (useWalkthroughStore.getState().phase !== 'off') return;
 
       const bounds = sceneBounds(useEditorStore.getState().project, activeFloorId);
       const mid = (bounds.y0 + bounds.y1) / 2;
@@ -487,6 +532,8 @@ function EditorRig() {
 
   // --- camera presets --------------------------------------------------------
   React.useEffect(() => {
+    // The walkthrough drives the camera; presets resume when it ends.
+    if (useWalkthroughStore.getState().phase !== 'off') return;
     const target = sceneBounds(useEditorStore.getState().project, activeFloorId);
     if (cameraPreset === 'persp') {
       // Initial mount is framed by the effect below; a later click on the
@@ -539,7 +586,15 @@ function EditorRig() {
       a.download = `${(project.name || 'project').toLowerCase().replace(/[^a-z0-9]+/g, '-')}-preview.png`;
       a.click();
     });
-    return () => registerCapturer(null);
+    registerImageCapturer(async (type, quality) => {
+      invalidate();
+      await new Promise((r) => requestAnimationFrame(r));
+      return { dataUrl: gl.domElement.toDataURL(type, quality), width: gl.domElement.width, height: gl.domElement.height };
+    });
+    return () => {
+      registerCapturer(null);
+      registerImageCapturer(null);
+    };
   }, [gl, invalidate, project.name]);
 
   const commitTransform = React.useCallback(() => {
@@ -597,13 +652,16 @@ function EditorRig() {
   }, [selObject, transformMode, invalidate]);
 
   // A client can select a piece to read its size, but gets no handles.
-  const showGizmo = canEdit && selKind === 'object' && selObject != null && selection.length === 1 && tool === 'select';
+  const showGizmo = !walking && canEdit && selKind === 'object' && selObject != null && selection.length === 1 && tool === 'select';
 
   return (
     <>
       <OrbitControls
         ref={controlsRef}
         makeDefault
+        // Disabled (not unmounted) while walking, so its target survives and
+        // the exit flight lands back on the exact editor view.
+        enabled={!walking}
         // Blender's feel: weighted damping, zoom that homes in on whatever is
         // under the cursor, and panning in screen space rather than along the
         // ground plane, so dragging moves what you are looking at.
@@ -627,7 +685,9 @@ function EditorRig() {
         onStart={() => invalidate()}
         onChange={() => invalidate()}
       />
-      <ModalTransform object={selObject} objectId={selection[0] ?? null} enabled={canEdit && selKind === 'object' && selection.length === 1} />
+      <ModalTransform object={selObject} objectId={selection[0] ?? null} enabled={!walking && canEdit && selKind === 'object' && selection.length === 1} />
+      <WalkthroughRig getSession={() => sessionRef.current} controlsRef={controlsRef} structureKey={structureKey} />
+      <SpawnMarkers />
       <Grid
         position={[0, -0.005, 0]}
         args={[10, 10]}

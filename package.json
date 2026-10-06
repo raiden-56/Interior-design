@@ -19,7 +19,8 @@
     "build:site": "npm run build -w @interior/site",
     "preview:site": "npm run preview -w @interior/site",
     "build:all": "npm run build && npm run build:site",
-    "record:manual": "node tools/record-manual.mjs"
+    "record:manual": "node tools/record-manual.mjs",
+    "mcp": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --import ./apps/web/scripts/register-test-loader.mjs tools/mcp-server.mjs"
   },
   "devDependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0"

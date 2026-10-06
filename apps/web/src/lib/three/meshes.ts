@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import type { Door, Room, Wall, Window, ProjectObject } from '@interior/core';
-import { wallDir, wallLength, pointOnWall } from '@interior/core';
+import type { Door, Room, Vec2, Wall, Window, ProjectObject } from '@interior/core';
+import { wallDir, wallLength, pointOnWall, pointInPolygon } from '@interior/core';
 import { materialById } from '@/lib/materials';
 
 /**
@@ -251,28 +251,62 @@ function makeDoorParts(
   const leafH = height - 0.06;
   const open = swing === 0 ? 0 : (swing === 2 ? -1 : 1) * 1.15;
   const side = swing === 2 ? -1 : 1;
-  const swung = {
-    x: dir.x * Math.cos(open) + normal.x * Math.sin(open) * side,
-    y: dir.y * Math.cos(open) + normal.y * Math.sin(open) * side,
-  };
   const hinge = pointOnWall(wall, offset + jamb);
+  const hingeData: DoorHinge = { hinge, dir, normal, side, leafW, leafH, floorElevation, editorAngle: open };
+
   const leaf = new THREE.Mesh(new THREE.BoxGeometry(leafW, leafH, 0.045), leafMat);
-  leaf.position.set(hinge.x + (swung.x * leafW) / 2, floorElevation + leafH / 2, hinge.y + (swung.y * leafW) / 2);
-  leaf.rotation.y = Math.atan2(-swung.y, swung.x);
   leaf.castShadow = true;
+  leaf.userData.doorPart = 'leaf';
+  leaf.userData.doorHinge = hingeData;
   parts.push(leaf);
 
   // Handle on the free edge of the leaf.
   const handle = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.03, 0.03), metal);
-  handle.position.set(
-    hinge.x + swung.x * (leafW - 0.11),
-    floorElevation + leafH * 0.45,
-    hinge.y + swung.y * (leafW - 0.11),
-  );
-  handle.rotation.y = leaf.rotation.y;
+  handle.userData.doorPart = 'handle';
+  handle.userData.doorHinge = hingeData;
   parts.push(handle);
 
+  // The editor shows the leaf at its hint angle; the walkthrough drives the
+  // same two meshes through `poseDoorPart` as the door opens and closes.
+  poseDoorPart(leaf, open);
+  poseDoorPart(handle, open);
+
   return parts;
+}
+
+/** Everything needed to swing a door leaf about its hinge after the fact. */
+export interface DoorHinge {
+  hinge: Vec2;
+  dir: Vec2;
+  normal: Vec2;
+  side: 1 | -1;
+  leafW: number;
+  leafH: number;
+  floorElevation: number;
+  /** The angle the editor draws it at (its swing hint). */
+  editorAngle: number;
+}
+
+/**
+ * Places a door leaf or handle for a given opening angle (radians, 0 =
+ * closed, flush with the wall). Positions are local to the floor group, the
+ * same frame `makeDoorParts` builds in, so this is safe to call on a live
+ * scene from the walkthrough's animation loop.
+ */
+export function poseDoorPart(part: THREE.Object3D, angle: number): void {
+  const h = part.userData.doorHinge as DoorHinge | undefined;
+  if (!h) return;
+  const swung = {
+    x: h.dir.x * Math.cos(angle) + h.normal.x * Math.sin(angle) * h.side,
+    y: h.dir.y * Math.cos(angle) + h.normal.y * Math.sin(angle) * h.side,
+  };
+  const yaw = Math.atan2(-swung.y, swung.x);
+  if (part.userData.doorPart === 'handle') {
+    part.position.set(h.hinge.x + swung.x * (h.leafW - 0.11), h.floorElevation + h.leafH * 0.45, h.hinge.y + swung.y * (h.leafW - 0.11));
+  } else {
+    part.position.set(h.hinge.x + (swung.x * h.leafW) / 2, h.floorElevation + h.leafH / 2, h.hinge.y + (swung.y * h.leafW) / 2);
+  }
+  part.rotation.y = yaw;
 }
 
 function makeSolid(
@@ -326,15 +360,38 @@ function makeGlass(pool: MeshPool, x: number, z: number, height: number, width: 
 
 // --- floors ------------------------------------------------------------------
 
-export function buildRoomFloorMesh(pool: MeshPool, room: Room, elevation: number, slabThickness = 0.12): THREE.Mesh {
-  if (room.points.length < 3) return new THREE.Mesh();
-  // Build the shape (Shape requires moveTo, then lineTo).
+/**
+ * Plan polygon → extrudable shape, with optional cut-outs.
+ *
+ * A cut-out is only honoured when it lies entirely inside the outline: the
+ * triangulator cannot handle a hole that crosses the boundary, and a stair
+ * that pokes through a room's wall is a design mistake the collision warnings
+ * already report.
+ */
+export function planShape(points: Vec2[], holes: Vec2[][] = []): THREE.Shape {
   const s = new THREE.Shape();
-  room.points.forEach((p, i) => {
+  points.forEach((p, i) => {
     if (i === 0) s.moveTo(p.x, p.y);
     else s.lineTo(p.x, p.y);
   });
   s.closePath();
+  for (const hole of holes) {
+    if (hole.length < 3 || !hole.every((p) => pointInPolygon(p, points))) continue;
+    const path = new THREE.Path();
+    hole.forEach((p, i) => {
+      if (i === 0) path.moveTo(p.x, p.y);
+      else path.lineTo(p.x, p.y);
+    });
+    path.closePath();
+    s.holes.push(path);
+  }
+  return s;
+}
+
+export function buildRoomFloorMesh(pool: MeshPool, room: Room, elevation: number, slabThickness = 0.12, holes: Vec2[][] = []): THREE.Mesh {
+  if (room.points.length < 3) return new THREE.Mesh();
+  // Build the shape (Shape requires moveTo, then lineTo).
+  const s = planShape(room.points, holes);
   const geo = new THREE.ExtrudeGeometry(s, { depth: slabThickness, bevelEnabled: false });
   // The shape is drawn in plan coordinates, where y is the world's z. Rotating
   // the other way mapped plan y to -z, so every floor slab was mirrored
@@ -345,6 +402,24 @@ export function buildRoomFloorMesh(pool: MeshPool, room: Room, elevation: number
   geo.translate(0, elevation, 0);
   const mesh = new THREE.Mesh(geo, pool.fromAppearance(roomAppearance(room)));
   mesh.receiveShadow = true;
+  return mesh;
+}
+
+/**
+ * A ceiling over a room, for the walkthrough only — the editor leaves rooms
+ * open from above so the plan stays readable from the orbit camera. The slab
+ * sits with its underside at `y` and casts no shadow, so sunlight still
+ * reaches the interior and the rooms do not turn to caves.
+ */
+export function buildCeilingMesh(pool: MeshPool, room: Room, y: number, holes: Vec2[][] = [], thickness = 0.06): THREE.Mesh {
+  if (room.points.length < 3) return new THREE.Mesh();
+  const geo = new THREE.ExtrudeGeometry(planShape(room.points, holes), { depth: thickness, bevelEnabled: false });
+  geo.rotateX(Math.PI / 2);
+  geo.translate(0, y + thickness, 0);
+  const mesh = new THREE.Mesh(geo, pool.mat('#f3f1ec', 0.95, 0));
+  mesh.castShadow = false;
+  mesh.receiveShadow = false;
+  mesh.userData.ceiling = true;
   return mesh;
 }
 
@@ -775,6 +850,54 @@ export function buildFurnitureMesh(pool: MeshPool, obj: ProjectObject): THREE.Gr
       add(prismatic(w * 0.2, 0.02, 0.02, pool.mat('#5ec8f0', 0.3, 0.2)), w * 0.32, h - 0.06, d / 2 + 0.005);
       break;
     }
+    case 'stairs': {
+      // `h` is the total rise. The bottom step is at the front (+z) and the
+      // flight climbs towards the back, which is also the ramp the
+      // walkthrough's ground detection follows (see StairController).
+      const { steps, run, riser } = stairProfile(d, h);
+      for (let i = 0; i < steps; i++) {
+        const top = (i + 1) * riser;
+        const zc = d / 2 - (i + 0.5) * run;
+        const tread = prismatic(w, top, run, i % 2 ? mat : light);
+        tread.receiveShadow = true;
+        add(tread, 0, top / 2, zc);
+      }
+      // Handrail on the right-hand side going up.
+      const railLen = Math.hypot(d, h);
+      const tilt = Math.atan2(h, d);
+      const rail = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, railLen, 10), dark);
+      rail.rotation.set(Math.PI / 2 + tilt, 0, 0);
+      add(rail, w / 2 - 0.04, h / 2 + 0.9, 0);
+      for (const t of [0.08, 0.5, 0.92]) {
+        const post = prismatic(0.03, 0.9, 0.03, dark);
+        add(post, w / 2 - 0.04, t * h + 0.45, d / 2 - t * d);
+      }
+      break;
+    }
+    case 'elevator': {
+      // A cabin open at the front (+z) with two sliding door panels the
+      // walkthrough animates. Walls are thin so the car stays walkable inside.
+      const steel = pool.mat('#aeb6bd', 0.3, 0.7);
+      const wallT = 0.05;
+      add(prismatic(w, 0.04, d, dark), 0, 0.02, 0);
+      add(prismatic(w, h, wallT, mat), 0, h / 2, -d / 2 + wallT / 2);
+      add(prismatic(wallT, h, d, mat), -w / 2 + wallT / 2, h / 2, 0);
+      add(prismatic(wallT, h, d, mat), w / 2 - wallT / 2, h / 2, 0);
+      add(prismatic(w, 0.05, d, light), 0, h - 0.025, 0);
+      add(new THREE.Mesh(new THREE.SphereGeometry(0.06, 12, 10), pool.mat('#fff3c4', 0.2, 0)), 0, h - 0.1, 0);
+      // Front frame above the doors and the two panels.
+      add(prismatic(w, 0.12, 0.06, steel), 0, h - 0.06, d / 2 - 0.03);
+      const panelW = w / 2 - 0.02;
+      for (const side of [-1, 1] as const) {
+        const panel = prismatic(panelW, h - 0.14, 0.04, steel);
+        panel.userData.doorPart = 'elevatorDoor';
+        panel.userData.elevatorSlide = { closedX: (side * w) / 4, dir: side, travel: panelW * 0.92 };
+        add(panel, (side * w) / 4, (h - 0.14) / 2, d / 2 - 0.02);
+      }
+      // Call panel next to the doors.
+      add(prismatic(0.08, 0.14, 0.02, dark), w / 2 - 0.1, 1.1, d / 2 + 0.01);
+      break;
+    }
     default: {
       add(prismatic(w, h, d, mat), 0, h / 2, 0);
     }
@@ -782,6 +905,23 @@ export function buildFurnitureMesh(pool: MeshPool, obj: ProjectObject): THREE.Gr
 
   // Orientation and scale are applied by `placeFurniture`.
   return group;
+}
+
+/**
+ * Step count for a flight: as many risers as it takes to keep each one near
+ * 17.5 cm, the comfortable domestic value. Shared by the mesh builder and the
+ * walkthrough so the feet land where the eye sees a tread.
+ */
+export function stairProfile(depth: number, rise: number): { steps: number; run: number; riser: number } {
+  const steps = Math.max(2, Math.round(rise / 0.175));
+  return { steps, run: depth / steps, riser: rise / steps };
+}
+
+/** Slides an elevator door panel: 0 = closed, 1 = fully open. */
+export function poseElevatorDoor(panel: THREE.Object3D, open: number): void {
+  const s = panel.userData.elevatorSlide as { closedX: number; dir: number; travel: number } | undefined;
+  if (!s) return;
+  panel.position.x = s.closedX + s.dir * s.travel * Math.min(Math.max(open, 0), 1);
 }
 
 /**
@@ -839,6 +979,8 @@ export const LIGHT_PRESETS = {
   evening: { intensity: 1.1, color: '#c9a86a', ambient: 0.35, bg: '#0c1016' },
   warm: { intensity: 1.6, color: '#ffcb8a', ambient: 0.45, bg: '#151014' },
   studio: { intensity: 3.0, color: '#ffffff', ambient: 0.7, bg: '#0e1320' },
+  // Moonlight: the walkthrough's room lights do the work at night.
+  night: { intensity: 0.18, color: '#8fa3c7', ambient: 0.14, bg: '#04060a' },
 } as const;
 
 export type LightPreset = keyof typeof LIGHT_PRESETS;

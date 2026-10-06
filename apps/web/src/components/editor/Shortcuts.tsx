@@ -5,6 +5,7 @@ import { gridStep } from '@interior/core';
 import { useEditorStore, type Tool } from '@/stores/editor-store';
 import { useUiStore } from '@/stores/ui-store';
 import { sessionCan } from '@/stores/session-store';
+import { walkthroughActive } from '@/stores/walkthrough-store';
 
 const TOOL_KEYS: Record<string, Tool> = {
   v: 'select',
@@ -73,6 +74,20 @@ export const SHORTCUT_GROUPS: { title: string; items: { keys: string; action: st
       { keys: '?', action: 'This help' },
     ],
   },
+  {
+    title: 'Walkthrough',
+    items: [
+      { keys: 'Walk button', action: 'Step inside the design in first person' },
+      { keys: 'W A S D', action: 'Walk · Shift runs · Ctrl or Alt walks slowly' },
+      { keys: 'Mouse', action: 'Look around (click once to take control)' },
+      { keys: 'E', action: 'Open a door, sit, stand up, use the lift' },
+      { keys: 'C / X', action: 'Hide the ceiling / see-through walls' },
+      { keys: 'N / J', action: 'Navigate to a room / jump to a floor' },
+      { keys: '1 / 2 / 3', action: 'First person / third person / free camera' },
+      { keys: 'L · M · H · F', action: 'Lighting · map · hide HUD · fullscreen' },
+      { keys: 'Esc', action: 'Pause, then exit back to the editor' },
+    ],
+  },
 ];
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -95,6 +110,11 @@ export function KeyboardShortcuts() {
       // Without this, Esc would also clear the selection out from under the
       // transform, and typing "1" would jump to the floor plan mid-move.
       if (ui.modalTransform) return;
+
+      // Inside the walkthrough every key belongs to the walkthrough (WASD,
+      // E, Esc …). Nothing here may fire, or Esc would clear the selection
+      // the exit flight is supposed to hand back untouched.
+      if (walkthroughActive()) return;
 
       // Navigation keys stay live for everyone; anything that would change the
       // drawing is simply not bound on a read-only session.

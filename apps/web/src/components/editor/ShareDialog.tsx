@@ -32,6 +32,7 @@ export function ShareDialog({ open, onClose }: { open: boolean; onClose: () => v
   const [days, setDays] = React.useState(14);
   const [passcode, setPasscode] = React.useState('');
   const [watermark, setWatermark] = React.useState(true);
+  const [allowWalkthrough, setAllowWalkthrough] = React.useState(true);
   const [link, setLink] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
@@ -62,6 +63,7 @@ export function ShareDialog({ open, onClose }: { open: boolean; onClose: () => v
           expiresInDays: days === 0 ? null : days,
           passcode: passcode.trim(),
           watermark,
+          allowWalkthrough,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as { path?: string; error?: string };
@@ -138,6 +140,19 @@ export function ShareDialog({ open, onClose }: { open: boolean; onClose: () => v
             />
           </div>
         </div>
+
+        {role === 'viewer' && (
+          <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">
+            <input type="checkbox" checked={allowWalkthrough} onChange={(e) => setAllowWalkthrough(e.target.checked)} className="mt-0.5 accent-sky-500" />
+            <span className="text-xs leading-relaxed text-zinc-300">
+              Allow the 3D walkthrough
+              <span className="mt-0.5 block text-[11px] text-zinc-500">
+                They can walk through the rooms in first person, open doors and sit on the furniture. Nothing they do in there
+                changes the design, and the view stays watermarked and export-free.
+              </span>
+            </span>
+          </label>
+        )}
 
         {role === 'viewer' && (
           <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-zinc-800 bg-zinc-900/40 p-3">

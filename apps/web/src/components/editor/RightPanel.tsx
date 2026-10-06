@@ -1,9 +1,10 @@
 'use client';
 
 import * as React from 'react';
-import { X, Trash2, Layers, Copy } from 'lucide-react';
-import type { Command, Door, ProjectObject, Room, UnitSystem, Wall, Window } from '@interior/core';
-import { wallLength, fromMeters, toMeters, formatLength, formatArea, polygonArea } from '@interior/core';
+import { X, Trash2, Layers, Copy, Footprints, MapPin } from 'lucide-react';
+import type { Command, Door, DoorBehavior, ProjectObject, Room, UnitSystem, Wall, Window } from '@interior/core';
+import { wallLength, fromMeters, toMeters, formatLength, formatArea, polygonArea, doorBehavior } from '@interior/core';
+import { collisionEnabled, hasExplicitCollision, hasExplicitInteraction, interactionOf, defaultInteraction, INTERACTION_TYPES, type InteractionType } from '@/components/walkthrough/FurnitureInteraction';
 import { useEditorStore, type SelectionInfo } from '@/stores/editor-store';
 import { useUiStore } from '@/stores/ui-store';
 import { MATERIALS, MATERIAL_CATEGORIES, SWATCHES, materialById } from '@/lib/materials';
@@ -35,14 +36,17 @@ export function RightPanel() {
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
         {infos.length === 0 && (
-          <div className="space-y-3 py-2 text-center text-xs text-zinc-500">
-            <Layers className="mx-auto h-8 w-8 text-zinc-700" />
-            <p>
-              Select a wall, door, window, room or piece of furniture to edit its properties.
-              <br />
-              <span className="text-zinc-600">(click an item on the plan or in 3D)</span>
-            </p>
-          </div>
+          <>
+            <div className="space-y-3 py-2 text-center text-xs text-zinc-500">
+              <Layers className="mx-auto h-8 w-8 text-zinc-700" />
+              <p>
+                Select a wall, door, window, room or piece of furniture to edit its properties.
+                <br />
+                <span className="text-zinc-600">(click an item on the plan or in 3D)</span>
+              </p>
+            </div>
+            <WalkthroughStartSection />
+          </>
         )}
         {infos.length === 1 && <SingleInfo info={infos[0]} />}
         {infos.length > 1 && <MultiInfo infos={infos} />}
@@ -252,7 +256,8 @@ function DoorEditor({ info }: { info: SelectionInfo }) {
   const maxOffset = wall ? Math.max(wallLength(wall) - door.width, 0) : 3;
 
   return (
-    <Section title="Geometry">
+    <>
+      <Section title="Geometry">
       <Row label={`Width (${u.label})`}>
         <LengthSlider min={0.6} max={1.8} value={door.width} u={u} onChange={(v) => run({ type: 'UPDATE_DOOR', id: door.id, patch: { width: round(v, 3) } })} />
       </Row>
@@ -278,7 +283,36 @@ function DoorEditor({ info }: { info: SelectionInfo }) {
           ))}
         </div>
       </Row>
-    </Section>
+      </Section>
+      <Section title="Walkthrough">
+        <Row label="Behaviour">
+          <div className="grid w-full grid-cols-2 gap-1">
+            {(
+              [
+                ['manual', 'Manual (E)'],
+                ['automatic', 'Automatic'],
+                ['open', 'Always open'],
+                ['locked', 'Locked'],
+              ] as [DoorBehavior, string][]
+            ).map(([b, label]) => (
+              <button
+                key={b}
+                onClick={() => run({ type: 'UPDATE_DOOR', id: door.id, patch: { metadata: { ...(door.metadata ?? {}), doorBehavior: b } } }, 'Door behaviour')}
+                className={
+                  'rounded border px-2 py-1 text-[10px] ' +
+                  (doorBehavior(door) === b ? 'border-sky-500/50 bg-sky-500/10 text-sky-300' : 'border-zinc-800 text-zinc-500 hover:text-zinc-300')
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </Row>
+        <p className="text-[10px] leading-relaxed text-zinc-500">
+          How the door behaves when someone walks up to it. Manual doors open with <kbd className="rounded bg-zinc-800 px-1">E</kbd>; automatic ones open as you approach.
+        </p>
+      </Section>
+    </>
   );
 }
 
@@ -392,7 +426,138 @@ function ObjectEditor({ info }: { info: SelectionInfo }) {
           <SwatchRow swatches={SWATCHES} value={obj.color} onChange={(hex) => run({ type: 'UPDATE_OBJECT', id: obj.id, patch: { color: hex, materialId: null } })} />
         </div>
       </Section>
+      <ObjectWalkthroughSection obj={obj} />
     </>
+  );
+}
+
+/**
+ * How a piece behaves when someone walks up to it. Defaults come from the
+ * catalog shape; anything set here is stored in `metadata`, the same bag that
+ * already carries `mounted`, so the model stays the single source of truth.
+ */
+function ObjectWalkthroughSection({ obj }: { obj: ProjectObject }) {
+  const run = useEditorStore((s) => s.run);
+  const u = useUnits();
+  const current = interactionOf(obj).type;
+  const explicit = hasExplicitInteraction(obj);
+  const setMeta = (patch: Record<string, unknown>, label: string) => {
+    const next: Record<string, unknown> = { ...(obj.metadata ?? {}), ...patch };
+    for (const k of Object.keys(next)) if (next[k] === undefined) delete next[k];
+    run({ type: 'UPDATE_OBJECT', id: obj.id, patch: { metadata: next } }, label);
+  };
+  const labelOf = (t: InteractionType) =>
+    ({ sit: 'Sit', lie: 'Lie down', cabinet: 'Open / close', drawer: 'Open / close (appliance)', light: 'Light switch', switch: 'On / off', view: 'Look at', inspect: 'Inspect', elevator: 'Elevator', stairs: 'Stairs', none: 'Nothing', door: 'Door', window: 'Window', object: 'Inspect' })[t];
+
+  return (
+    <Section title="Walkthrough">
+      {obj.shape === 'stairs' && (
+        <>
+          <Row label={`Rise (${u.label})`}>
+            <LengthInput value={obj.height} u={u} onChange={(m) => run({ type: 'UPDATE_OBJECT', id: obj.id, patch: { height: round(m, 3) } })} />
+          </Row>
+          <p className="text-[10px] leading-relaxed text-zinc-500">
+            Total height the flight climbs — match the floor height so it arrives on the next floor. The front edge is the bottom step; rotate the piece to face the stairs the right way.
+          </p>
+        </>
+      )}
+      <Row label="Interaction">
+        <select
+          value={explicit ? current : 'auto'}
+          onChange={(e) => {
+            const v = e.target.value;
+            setMeta({ interaction: v === 'auto' ? undefined : { ...((obj.metadata?.interaction as object) ?? {}), type: v } }, 'Walkthrough interaction');
+          }}
+          className="w-full rounded-md border border-zinc-800 bg-zinc-900 px-2 py-1 text-xs text-zinc-200 outline-none focus:border-sky-500/50"
+        >
+          <option value="auto">Auto · {labelOf(defaultInteraction(obj.shape))}</option>
+          {INTERACTION_TYPES.map((t) => (
+            <option key={t} value={t}>
+              {labelOf(t)}
+            </option>
+          ))}
+        </select>
+      </Row>
+      <Row label="Solid">
+        <label className="flex w-full cursor-pointer items-center gap-2 text-xs text-zinc-300">
+          <input
+            type="checkbox"
+            checked={collisionEnabled(obj)}
+            onChange={(e) => setMeta({ collisionEnabled: e.target.checked }, 'Walkthrough collision')}
+            className="accent-sky-500"
+          />
+          <span>
+            Blocks the player
+            {!hasExplicitCollision(obj) && <span className="ml-1 text-[10px] text-zinc-500">(default)</span>}
+          </span>
+        </label>
+      </Row>
+    </Section>
+  );
+}
+
+/** Where the walkthrough begins. Spawn points live on the project, never in runtime state. */
+function WalkthroughStartSection() {
+  const run = useEditorStore((s) => s.run);
+  const project = useEditorStore((s) => s.project);
+  const setView = useEditorStore((s) => s.setView);
+  const pushToast = useEditorStore((s) => s.pushToast);
+  const pendingSpawn = useUiStore((s) => s.pendingSpawn);
+  const setPendingSpawn = useUiStore((s) => s.setPendingSpawn);
+  const wt = project.walkthrough ?? { spawns: [], startSpawnId: null };
+  const floorName = (id: string) => project.floors.find((f) => f.id === id)?.name ?? '—';
+  const save = (spawns: typeof wt.spawns, startSpawnId: string | null, label: string) =>
+    run({ type: 'UPDATE_PROJECT', patch: { walkthrough: { spawns, startSpawnId } } }, label);
+
+  return (
+    <Section title="Walkthrough start">
+      <p className="text-[10px] leading-relaxed text-zinc-500">
+        Where <b className="text-zinc-300">Walk</b> drops you in. Without one, the walkthrough starts in the middle of the largest room.
+      </p>
+      <button
+        onClick={() => {
+          setView('3d');
+          setPendingSpawn(true);
+          pushToast('Click on the floor in 3D to place the start point', 'info');
+        }}
+        className={
+          'flex w-full items-center justify-center gap-1.5 rounded-md border px-2 py-2 text-[11px] ' +
+          (pendingSpawn ? 'border-emerald-500/50 bg-emerald-500/10 text-emerald-300' : 'border-zinc-800 bg-zinc-900/60 text-zinc-200 hover:border-emerald-500/40')
+        }
+      >
+        <MapPin className="h-3.5 w-3.5" /> {pendingSpawn ? 'Click on the floor in 3D…' : 'Place start point in 3D'}
+      </button>
+      {wt.spawns.length > 0 && (
+        <ul className="space-y-1">
+          {wt.spawns.map((s) => {
+            const active = s.id === (wt.startSpawnId ?? wt.spawns[0].id);
+            return (
+              <li key={s.id} className={'flex items-center gap-2 rounded-md border px-2 py-1.5 ' + (active ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-zinc-800')}>
+                <Footprints className={'h-3.5 w-3.5 shrink-0 ' + (active ? 'text-emerald-400' : 'text-zinc-500')} />
+                <input
+                  value={s.name}
+                  onChange={(e) => save(wt.spawns.map((x) => (x.id === s.id ? { ...x, name: e.target.value } : x)), wt.startSpawnId, 'Rename start point')}
+                  className="min-w-0 flex-1 bg-transparent text-xs text-zinc-200 outline-none"
+                />
+                <span className="shrink-0 text-[10px] text-zinc-500">{floorName(s.floorId)}</span>
+                {!active && (
+                  <button onClick={() => save(wt.spawns, s.id, 'Choose start point')} className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-sky-300 hover:bg-sky-500/10">
+                    Use
+                  </button>
+                )}
+                <button
+                  onClick={() => save(wt.spawns.filter((x) => x.id !== s.id), wt.startSpawnId === s.id ? null : wt.startSpawnId, 'Remove start point')}
+                  className="shrink-0 rounded p-0.5 text-zinc-500 hover:bg-red-500/10 hover:text-red-400"
+                  title="Remove"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Section>
   );
 }
 

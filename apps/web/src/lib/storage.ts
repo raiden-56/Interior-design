@@ -141,7 +141,7 @@ interface RemoteProject {
   name: string;
   units: Project['units'];
   floorHeight: number;
-  scene: { floors?: Project['floors']; floorHeight?: number; units?: string } | null;
+  scene: { floors?: Project['floors']; floorHeight?: number; units?: string; walkthrough?: Project['walkthrough'] } | null;
   updatedAt: number;
 }
 
@@ -276,6 +276,7 @@ function remoteToProject(remote: RemoteProject): Project | null {
     floorHeight: remote.scene?.floorHeight ?? remote.floorHeight ?? 3,
     floors,
     updatedAt: remote.updatedAt || 0,
+    ...(remote.scene?.walkthrough ? { walkthrough: remote.scene.walkthrough } : {}),
   };
 }
 
@@ -286,15 +287,22 @@ export function projectToScene(project: Project): unknown {
     floors: project.floors,
     floorHeight: project.floorHeight,
     units: project.units,
+    // Spawn points ride along in the same JSON column; the backend never
+    // looks inside `scene`, so no server change is needed.
+    ...(project.walkthrough ? { walkthrough: project.walkthrough } : {}),
   };
 }
 
 /** Kept for callers that already hold a backend project shell. */
-export function sceneToProject(project: Project, scene: { floors?: unknown; floorHeight?: number; units?: string }): Project {
+export function sceneToProject(
+  project: Project,
+  scene: { floors?: unknown; floorHeight?: number; units?: string; walkthrough?: Project['walkthrough'] },
+): Project {
   return {
     ...project,
     units: (scene.units as Project['units']) ?? project.units,
     floorHeight: scene.floorHeight ?? project.floorHeight,
     floors: (scene.floors as Project['floors'])?.length ? (scene.floors as Project['floors']) : project.floors,
+    ...(scene.walkthrough ? { walkthrough: scene.walkthrough } : {}),
   };
 }

@@ -9,6 +9,7 @@ import { deleteProjectLocal, parseProjectFile, readFileAsText, remoteDelete, rem
 import { TEMPLATES, templateStats, type ProjectTemplate } from '@/lib/templates';
 import { PlanThumbnail } from '@/components/PlanThumbnail';
 import { TemplateGallery } from '@/components/TemplateGallery';
+import { AiPlanBuilder } from '@/components/AiPlanBuilder';
 import { Dialog } from '@/components/ui/dialog';
 import { useSessionStore } from '@/stores/session-store';
 import { cn } from '@/lib/cn';
@@ -16,7 +17,7 @@ import { cn } from '@/lib/cn';
 const FEATURES = [
   { icon: <Box className="h-4 w-4 text-sky-400" />, title: '2D floor plans', text: 'Draw walls, add doors & windows with live snapping. Box-select, nudge with the arrow keys, undo anything.' },
   { icon: <Layers className="h-4 w-4 text-indigo-400" />, title: 'Real-time 3D preview', text: 'The same model rendered in Three.js. Drag, rotate and scale furniture with on-screen handles.' },
-  { icon: <Sparkles className="h-4 w-4 text-emerald-400" />, title: 'AI assistant', text: 'Type "add a green sofa near the window" and review the proposed changes before applying.' },
+  { icon: <Sparkles className="h-4 w-4 text-emerald-400" />, title: 'AI assistant & AI-built plans', text: 'Type "add a green sofa near the window" in the editor, or have a whole home drawn from a brief with your own API key or an MCP-connected assistant.' },
   { icon: <Palette className="h-4 w-4 text-amber-400" />, title: 'Materials & lighting', text: 'Wood, stone, metal and fabric finishes for walls, floors and furniture. Four lighting presets.' },
 ];
 
@@ -217,6 +218,8 @@ export default function DashboardPage() {
               ))}
           </div>
         </section>
+
+        <AiPlanBuilder onOpen={(p) => open(p)} />
 
         <section>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-zinc-500">What you can do</h2>

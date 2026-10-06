@@ -6,7 +6,8 @@
  */
 
 import * as THREE from 'three';
-import type { Floor, Project } from '@interior/core';
+import type { Floor, Project, Vec2 } from '@interior/core';
+import { objectCorners } from '@interior/core';
 import {
   MeshPool,
   buildWallSegmentMesh,
@@ -30,6 +31,43 @@ export interface SceneBuild {
   entities: Map<string, THREE.Object3D>;
   /** Present only when enough plants existed to batch them. */
   instanced: InstancedBatch | null;
+}
+
+/**
+ * Lets the renderer ask for a repaint when something asynchronous (a sketch
+ * texture) arrives after the build. With an on-demand frame loop nothing
+ * would otherwise show it until the next interaction.
+ */
+let invalidateScene: (() => void) | null = null;
+export function setSceneInvalidator(fn: (() => void) | null): void {
+  invalidateScene = fn;
+}
+
+/** The paper sketch as a flat textured plane on the floor (browser only). */
+function buildUnderlayMesh(floor: Floor): THREE.Mesh | null {
+  const u = floor.underlay;
+  if (!u || !u.show3d || !u.visible || !u.src || u.width <= 0 || typeof document === 'undefined') return null;
+  const w = u.width;
+  const h = u.width * u.aspect;
+  const geo = new THREE.PlaneGeometry(w, h);
+  geo.rotateX(-Math.PI / 2);
+  const mat = new THREE.MeshBasicMaterial({ transparent: true, opacity: Math.max(0.05, Math.min(1, u.opacity)), depthWrite: false, toneMapped: false });
+  new THREE.TextureLoader().load(u.src, (tex) => {
+    tex.colorSpace = THREE.SRGBColorSpace;
+    mat.map = tex;
+    mat.needsUpdate = true;
+    invalidateScene?.();
+  });
+  const mesh = new THREE.Mesh(geo, mat);
+  // Plan rotation is clockwise with y down; in 3D that is a negative turn about Y.
+  const r = (u.rotation * Math.PI) / 180;
+  const cx = u.x + (w / 2) * Math.cos(r) - (h / 2) * Math.sin(r);
+  const cz = u.y + (w / 2) * Math.sin(r) + (h / 2) * Math.cos(r);
+  mesh.position.set(cx, 0.004, cz);
+  mesh.rotation.y = -r;
+  mesh.renderOrder = -1;
+  mesh.userData.underlay = true;
+  return mesh;
 }
 
 export function buildScene(pool: MeshPool, project: Project, activeFloorId: string): SceneBuild {
@@ -72,8 +110,14 @@ export function buildScene(pool: MeshPool, project: Project, activeFloorId: stri
       }
     }
 
+    // A staircase from the floor below arrives through this slab, so the slab
+    // gets a matching cut-out — otherwise the flight ends against a ceiling.
+    const holes = stairwellHolesAt(project, floor.elevation, floor.id);
+    const underlay = buildUnderlayMesh(floor);
+    if (underlay) floorGroup.add(underlay);
+
     for (const room of floor.rooms) {
-      const m = buildRoomFloorMesh(pool, room, 0);
+      const m = buildRoomFloorMesh(pool, room, 0, 0.12, holes);
       m.userData.entity = { kind: 'room', id: room.id };
       floorGroup.add(m);
       if (!entities.has(room.id)) entities.set(room.id, m);
@@ -106,6 +150,25 @@ export function buildScene(pool: MeshPool, project: Project, activeFloorId: stri
   const instanced = buildInstancedPlants(pool, plants, group, entities);
 
   return { group, entities, instanced };
+}
+
+/**
+ * Footprints of every staircase whose top lands at `elevation` (within a
+ * riser's tolerance), excluding stairs that live on `excludeFloorId` itself.
+ * Used to cut stairwells into floor slabs and walkthrough ceilings.
+ */
+export function stairwellHolesAt(project: Project, elevation: number, excludeFloorId?: string): Vec2[][] {
+  const holes: Vec2[][] = [];
+  for (const f of project.floors) {
+    if (f.id === excludeFloorId) continue;
+    for (const o of f.objects) {
+      if (o.shape !== 'stairs') continue;
+      const top = f.elevation + o.height * o.scale;
+      if (Math.abs(top - elevation) > 0.35) continue;
+      holes.push(objectCorners(o));
+    }
+  }
+  return holes;
 }
 
 /**
@@ -223,6 +286,10 @@ export function structureSignature(project: Project): string {
       continue;
     }
     parts.push(`f:${f.id}:${f.elevation}`);
+    if (f.underlay?.show3d && f.underlay.visible) {
+      const u = f.underlay;
+      parts.push(`u:${u.src.length}:${u.x},${u.y},${u.width},${u.aspect},${u.rotation},${u.opacity}`);
+    }
     for (const w of f.walls) {
       parts.push(`w:${w.id}:${w.a.x},${w.a.y},${w.b.x},${w.b.y},${w.height},${w.thickness},${w.color},${w.materialId}`);
     }
@@ -232,7 +299,12 @@ export function structureSignature(project: Project): string {
       parts.push(`r:${r.id}:${r.color},${r.materialId},${r.points.map((p) => p.x + ',' + p.y).join(';')}`);
     }
     // Object geometry only — shape and footprint change the mesh itself.
-    for (const o of f.objects) parts.push(`o:${o.id}:${o.shape},${o.width},${o.depth},${o.height}`);
+    // Stairs are the exception: where they stand decides which slab gets a
+    // stairwell cut, so their transform is structural too.
+    for (const o of f.objects) {
+      parts.push(`o:${o.id}:${o.shape},${o.width},${o.depth},${o.height}`);
+      if (o.shape === 'stairs') parts.push(`s:${o.id}:${o.x},${o.z},${o.rotation},${o.scale}`);
+    }
   }
   return parts.join('|');
 }

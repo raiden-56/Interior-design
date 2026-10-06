@@ -18,4 +18,4 @@ export interface ApplyResult {
 }
 
 export type { Command, Project };
-export type { Floor, Wall, Door, Window, Room, ProjectObject, Vec2, UnitSystem } from './types';
+export type { Floor, Wall, Door, Window, Room, ProjectObject, Vec2, UnitSystem, DoorBehavior, SpawnPoint, WalkthroughProjectSettings, SketchUnderlay } from './types';

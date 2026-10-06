@@ -29,6 +29,7 @@ export async function POST(request: Request) {
     passcode?: string;
     allowComments?: boolean;
     watermark?: boolean;
+    allowWalkthrough?: boolean;
   };
   try {
     body = await request.json();
@@ -55,6 +56,8 @@ export async function POST(request: Request) {
     pc: passcode ? await sha256(passcode) : '',
     cm: role === 'viewer' ? Boolean(body.allowComments) : true,
     wm: body.watermark !== false,
+    // Editors can always walk the design; a view-only link opts out explicitly.
+    wt: role === 'viewer' ? body.allowWalkthrough !== false : true,
   };
 
   const token = await sign(payload);

@@ -5,6 +5,7 @@ import { MousePointer2, PencilRuler, DoorOpen, Grid3x3, Ruler, Hand, Plus, Trash
 import { useEditorStore } from '@/stores/editor-store';
 import { useUiStore } from '@/stores/ui-store';
 import { useCan } from '@/stores/session-store';
+import { useWalkthroughStore } from '@/stores/walkthrough-store';
 import { cn } from '@/lib/cn';
 import type { PlanTool } from '@/lib/plan-types';
 
@@ -34,6 +35,10 @@ export function BottomBar() {
   const warnings = useEditorStore((s) => s.warnings);
   const spaceHeld = useUiStore((s) => s.spaceHeld);
   const canEdit = useCan('edit');
+  const canWalk = useCan('walkthrough');
+  const walking = useWalkthroughStore((s) => s.phase !== 'off');
+  const requestEnter = useWalkthroughStore((s) => s.requestEnter);
+  const requestExit = useWalkthroughStore((s) => s.requestExit);
   // Select and pan are ways of looking; the rest change the drawing.
   const tools = canEdit ? TOOLS : TOOLS.filter((t) => t.id === 'select' || t.id === 'pan');
 
@@ -76,11 +81,30 @@ export function BottomBar() {
           2D
         </button>
         <button
-          onClick={() => setView('3d')}
-          className={cn('px-3 py-1.5 font-medium text-zinc-400', view === '3d' && 'bg-zinc-800 text-sky-300')}
+          onClick={() => {
+            if (walking) requestExit();
+            setView('3d');
+          }}
+          className={cn('px-3 py-1.5 font-medium text-zinc-400', view === '3d' && !walking && 'bg-zinc-800 text-sky-300')}
         >
           3D
         </button>
+        {canWalk && (
+          <button
+            onClick={() => {
+              if (walking) {
+                requestExit();
+                return;
+              }
+              if (view !== '3d') setView('3d');
+              requestEnter();
+            }}
+            title={walking ? 'Exit walkthrough (Esc)' : 'Walk inside the design'}
+            className={cn('px-3 py-1.5 font-medium text-zinc-400', walking && 'bg-zinc-800 text-emerald-300')}
+          >
+            Walk
+          </button>
+        )}
       </div>
 
       {view === '2d' && (

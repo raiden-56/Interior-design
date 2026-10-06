@@ -18,6 +18,8 @@ import { ShortcutsDialog } from './ShortcutsDialog';
 import { CanvasErrorBoundary } from './CanvasErrorBoundary';
 import { ClientSummaryPanel } from './ClientSummaryPanel';
 import { TourLauncher } from './TourLauncher';
+import { useWalkthroughStore } from '@/stores/walkthrough-store';
+import { WalkthroughHUD } from '@/components/walkthrough/WalkthroughHUD';
 
 const Canvas2D = dynamic(() => import('./Canvas2D').then((m) => m.Canvas2D), { ssr: false, loading: () => <CanvasLoading label="Loading 2D engine…" /> });
 const Canvas3D = dynamic(() => import('./Canvas3D').then((m) => m.Canvas3D), { ssr: false, loading: () => <CanvasLoading label="Loading 3D engine…" /> });
@@ -31,6 +33,15 @@ export function EditorShell() {
   const canEdit = useCan('edit');
   const canUseAi = useCan('ai');
   const isShare = useIsShareSession();
+  const walking = useWalkthroughStore((s) => s.phase !== 'off');
+  const immersive = useWalkthroughStore((s) => s.immersive);
+  // Fullscreen walkthrough: nothing but the canvas and its HUD.
+  const chrome = !(walking && immersive);
+
+  // Leaving the 3D view ends the walkthrough; the rig restores the camera as it unmounts.
+  React.useEffect(() => {
+    if (view !== '3d' && useWalkthroughStore.getState().phase !== 'off') useWalkthroughStore.getState().finishExit();
+  }, [view]);
 
   // A share session is set by the viewer route before this mounts; an account
   // session has to be fetched once so the UI knows what to offer.
@@ -68,10 +79,10 @@ export function EditorShell() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-[#090b10] text-zinc-200">
-      <TopBar />
+      {chrome && <TopBar />}
       <div className="flex min-h-0 flex-1">
         {/* The catalog, structure and material tabs are all editing tools. */}
-        {leftOpen && canEdit && <LeftPanel />}
+        {chrome && leftOpen && canEdit && <LeftPanel />}
         <main data-tour="canvas" className="relative min-w-0 flex-1 overflow-hidden bg-[#0c0f14]">
           {view === '2d' ? (
             <CanvasErrorBoundary label="floor plan">
@@ -82,17 +93,18 @@ export function EditorShell() {
               <Canvas3D />
             </CanvasErrorBoundary>
           )}
-          {aiOpen && canUseAi && <AiAssistant />}
+          {aiOpen && canUseAi && !walking && <AiAssistant />}
           <ModalTransformHud />
           <TourLauncher />
-          <ViewSwitchOverlay />
-          <ToolHint />
+          {!walking && <ViewSwitchOverlay />}
+          {!walking && <ToolHint />}
+          {view === '3d' && walking && <WalkthroughHUD />}
         </main>
         {/* Clients get a read-only schedule of the design instead of the
             property editor: the numbers they care about, nothing to break. */}
-        {rightOpen && (canEdit ? <RightPanel /> : <ClientSummaryPanel />)}
+        {chrome && rightOpen && (canEdit ? <RightPanel /> : <ClientSummaryPanel />)}
       </div>
-      <BottomBar />
+      {chrome && <BottomBar />}
       <Toasts />
       <KeyboardShortcuts />
       <ShortcutsDialog />
@@ -128,8 +140,8 @@ function ToolHint() {
   if (!canEdit) {
     text =
       view === '3d'
-        ? 'Left-drag to look around · Middle-drag or Space-drag to pan · Scroll to zoom · Press 1 for the floor plan'
-        : 'Hold Space and drag to pan · Scroll to zoom · Press 2 for the 3D walkthrough';
+        ? 'Left-drag to look around · Middle-drag or Space-drag to pan · Scroll to zoom · Walk to step inside · Press 1 for the floor plan'
+        : 'Hold Space and drag to pan · Scroll to zoom · Press 2 for the 3D view';
   } else if (pending) {
     text = `Click where to place ${pending.name} · Esc to cancel`;
   } else if (spacePan) {

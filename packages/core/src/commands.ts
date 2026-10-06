@@ -30,7 +30,7 @@ export type Command =
   | { type: 'DELETE_FLOOR'; id: string }
   | {
       type: 'UPDATE_PROJECT';
-      patch: Partial<Pick<Project, 'name' | 'units' | 'floorHeight'>>;
+      patch: Partial<Pick<Project, 'name' | 'units' | 'floorHeight' | 'walkthrough'>>;
     };
 
 export interface CommandResult {
@@ -94,7 +94,14 @@ export function applyCommand(project: Project, command: Command): CommandResult 
   }
 
   if (command.type === 'UPDATE_PROJECT') {
-    const prev = { name: next.name, units: next.units, floorHeight: next.floorHeight };
+    const prev: Partial<Pick<Project, 'name' | 'units' | 'floorHeight' | 'walkthrough'>> = {
+      name: next.name,
+      units: next.units,
+      floorHeight: next.floorHeight,
+    };
+    // Only captured when touched, so an unrelated rename does not pin an
+    // `undefined` walkthrough block onto its inverse.
+    if ('walkthrough' in command.patch) prev.walkthrough = next.walkthrough;
     Object.assign(next, command.patch);
     return { project: next, inverse: { type: 'UPDATE_PROJECT', patch: prev } };
   }

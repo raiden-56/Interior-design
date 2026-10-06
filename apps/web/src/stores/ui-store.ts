@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 
 export type CameraPreset = 'persp' | 'top' | 'iso' | 'front';
-export type RenderPreset = 'daylight' | 'evening' | 'warm' | 'studio';
+export type RenderPreset = 'daylight' | 'evening' | 'warm' | 'studio' | 'night';
 export type TransformMode = 'translate' | 'rotate' | 'scale';
 
 export interface AiPendingApply {
@@ -43,6 +43,8 @@ interface UiState {
   pendingAsset: PendingAsset | null;
   shortcutsOpen: boolean;
   aiEngine: AiEngineInfo | null;
+  /** Next click in the 3D view places a walkthrough start point. */
+  pendingSpawn: boolean;
   /**
    * Space is held down: every canvas temporarily pans on a left-drag.
    * Kept here rather than swapping the active tool, so releasing Space can
@@ -72,6 +74,7 @@ interface UiState {
   setAiEngine: (info: AiEngineInfo | null) => void;
   setSpaceHeld: (held: boolean) => void;
   setModalTransform: (t: UiState['modalTransform']) => void;
+  setPendingSpawn: (v: boolean) => void;
 }
 
 export const useUiStore = create<UiState>()((set) => ({
@@ -91,6 +94,7 @@ export const useUiStore = create<UiState>()((set) => ({
   aiEngine: null,
   spaceHeld: false,
   modalTransform: null,
+  pendingSpawn: false,
 
   toggleLeft: () => set((s) => ({ leftOpen: !s.leftOpen })),
   toggleRight: () => set((s) => ({ rightOpen: !s.rightOpen })),
@@ -107,4 +111,5 @@ export const useUiStore = create<UiState>()((set) => ({
   setAiEngine: (info) => set({ aiEngine: info }),
   setSpaceHeld: (held) => set((s) => (s.spaceHeld === held ? s : { spaceHeld: held })),
   setModalTransform: (t) => set({ modalTransform: t }),
+  setPendingSpawn: (v) => set({ pendingSpawn: v }),
 }));

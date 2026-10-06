@@ -25,11 +25,17 @@ import {
   CloudOff,
   HardDrive,
   Loader2,
+  Footprints,
+  MapPin,
+  FileText,
+  PencilRuler,
 } from "lucide-react";
 import { useEditorStore } from "@/stores/editor-store";
 import { useUiStore } from "@/stores/ui-store";
 import { useCan, useSessionStore } from "@/stores/session-store";
+import { useWalkthroughStore } from "@/stores/walkthrough-store";
 import { ShareDialog } from "./ShareDialog";
+import { ExportDialog, type ExportFormat } from "./ExportDialog";
 import {
   downloadProject,
   parseProjectFile,
@@ -51,13 +57,14 @@ const CAMERAS: {
 ];
 
 const LIGHTS: {
-  id: "daylight" | "evening" | "warm" | "studio";
+  id: "daylight" | "evening" | "warm" | "studio" | "night";
   label: string;
 }[] = [
   { id: "daylight", label: "Daylight" },
   { id: "evening", label: "Evening" },
   { id: "warm", label: "Warm" },
   { id: "studio", label: "Studio" },
+  { id: "night", label: "Night" },
 ];
 
 export function TopBar() {
@@ -96,12 +103,30 @@ export function TopBar() {
   const canEdit = useCan("edit");
   const canExport = useCan("exportFiles");
   const canShare = useCan("share");
+  const canWalk = useCan("walkthrough");
+  const walking = useWalkthroughStore((s) => s.phase !== "off");
+  const requestEnter = useWalkthroughStore((s) => s.requestEnter);
+  const requestExit = useWalkthroughStore((s) => s.requestExit);
+  const pendingSpawn = useUiStore((s) => s.pendingSpawn);
+  const setPendingSpawn = useUiStore((s) => s.setPendingSpawn);
+  const startWalk = () => {
+    if (!canWalk) return;
+    if (walking) {
+      requestExit();
+      return;
+    }
+    // The walkthrough lives inside the 3D canvas; the rig picks the request
+    // up as soon as that canvas is mounted.
+    if (view !== "3d") setView("3d");
+    requestEnter();
+  };
   const account = useSessionStore((s) =>
     s.session?.kind === "account" ? s.session : null,
   );
   const signOut = useSessionStore((s) => s.signOut);
   const [shareOpen, setShareOpen] = React.useState(false);
   const [exportOpen, setExportOpen] = React.useState(false);
+  const [drawingExport, setDrawingExport] = React.useState<ExportFormat | null>(null);
   const [savedFlash, setSavedFlash] = React.useState(false);
   const menuRef = React.useRef<HTMLDivElement>(null);
   const fileRef = React.useRef<HTMLInputElement>(null);
@@ -207,12 +232,29 @@ export function TopBar() {
             Plan
           </SegBtn>
           <SegBtn
-            active={view === "3d"}
-            onClick={() => setView("3d")}
+            active={view === "3d" && !walking}
+            onClick={() => {
+              if (walking) requestExit();
+              setView("3d");
+            }}
             title="3D view (2)"
           >
             3D
           </SegBtn>
+          {canWalk && (
+            <button
+              data-tour="walkthrough"
+              onClick={startWalk}
+              title={walking ? "Exit the walkthrough (Esc)" : "Walk inside the design in first person"}
+              className={cn(
+                "flex items-center gap-1 rounded-md px-3 py-1 text-xs font-medium text-zinc-400 transition-colors hover:text-zinc-100",
+                walking && "bg-emerald-600/25 text-emerald-300",
+              )}
+            >
+              <Footprints className="h-3.5 w-3.5" />
+              Walk
+            </button>
+          )}
         </div>
 
         {view === "2d" && (
@@ -248,6 +290,18 @@ export function TopBar() {
             >
               <Focus className="h-4 w-4" />
             </button>
+            {canEdit && !walking && (
+              <button
+                onClick={() => setPendingSpawn(!pendingSpawn)}
+                title={pendingSpawn ? "Click on the floor to place the start point · click again to cancel" : "Set walkthrough start position: click, then click on the floor"}
+                className={cn(
+                  "rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800 hover:text-emerald-300",
+                  pendingSpawn && "bg-emerald-600/25 text-emerald-300",
+                )}
+              >
+                <MapPin className="h-4 w-4" />
+              </button>
+            )}
             <select
               value={renderPreset}
               onChange={(e) =>
@@ -358,6 +412,23 @@ export function TopBar() {
             </MenuItem>
             <MenuItem
               onClick={() => {
+                setDrawingExport("pdf");
+                setExportOpen(false);
+              }}
+            >
+              <FileText className="h-3.5 w-3.5" /> PDF drawing set (with / without watermark)…
+            </MenuItem>
+            <MenuItem
+              onClick={() => {
+                setDrawingExport("dxf");
+                setExportOpen(false);
+              }}
+            >
+              <PencilRuler className="h-3.5 w-3.5" /> 2D CAD drawing (.dxf)…
+            </MenuItem>
+            <div className="my-1 h-px bg-zinc-800" />
+            <MenuItem
+              onClick={() => {
                 downloadProject(project);
                 setExportOpen(false);
               }}
@@ -433,6 +504,7 @@ export function TopBar() {
       )}
 
       {canShare && <ShareDialog open={shareOpen} onClose={() => setShareOpen(false)} />}
+      {canExport && <ExportDialog open={drawingExport !== null} format={drawingExport ?? "pdf"} onClose={() => setDrawingExport(null)} />}
     </header>
   );
 }

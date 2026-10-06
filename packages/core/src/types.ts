@@ -39,6 +39,26 @@ export interface Door extends Opening {
   kind: 'door';
   /** Swing direction hint: 0 = none, 1 = in, 2 = out. */
   swing: 0 | 1 | 2;
+  /**
+   * Walkthrough behaviour and anything else that is not geometry. Only
+   * `doorBehavior` is read today (see `doorBehavior()`); the bag exists so a
+   * future field does not need a schema migration.
+   */
+  metadata?: Record<string, unknown>;
+}
+
+/**
+ * How a door behaves when someone walks up to it in the walkthrough.
+ * `manual` waits for E, `automatic` opens on approach, `open` is a doorway
+ * that never closes, `locked` never opens.
+ */
+export type DoorBehavior = 'manual' | 'automatic' | 'open' | 'locked';
+
+export const DOOR_BEHAVIORS: DoorBehavior[] = ['manual', 'automatic', 'open', 'locked'];
+
+export function doorBehavior(d: Door): DoorBehavior {
+  const v = d.metadata?.doorBehavior;
+  return typeof v === 'string' && (DOOR_BEHAVIORS as string[]).includes(v) ? (v as DoorBehavior) : 'manual';
 }
 
 export interface Window extends Opening {
@@ -77,6 +97,32 @@ export interface ProjectObject {
   metadata?: Record<string, unknown>;
 }
 
+/**
+ * A scanned or photographed paper sketch laid under the floor plan so it can
+ * be traced. `src` is a data URL (the image travels with the project);
+ * position and size are in plan metres, so the drawing stays aligned when the
+ * project is reopened anywhere.
+ */
+export interface SketchUnderlay {
+  src: string;
+  /** Plan position of the image's top-left corner, metres. */
+  x: number;
+  y: number;
+  /** Width in metres; height follows the image's aspect ratio. */
+  width: number;
+  /** Pixel aspect (height / width) of the source image. */
+  aspect: number;
+  /** Degrees, clockwise in plan. */
+  rotation: number;
+  /** 0..1 */
+  opacity: number;
+  visible: boolean;
+  /** Locked underlays cannot be dragged in the plan. */
+  locked: boolean;
+  /** Also show it on the floor in the 3D view. */
+  show3d: boolean;
+}
+
 export interface Floor {
   id: string;
   name: string;
@@ -88,6 +134,30 @@ export interface Floor {
   windows: Window[];
   rooms: Room[];
   objects: ProjectObject[];
+  /** Optional traced-over paper sketch. */
+  underlay?: SketchUnderlay | null;
+}
+
+/**
+ * Where a walkthrough can start. Stored on the project (not in the runtime
+ * state) because the designer chooses it and it travels with the design.
+ * `yaw` is the heading in radians, using the 3D camera convention: 0 looks
+ * north (towards -z on the plan), positive turns left.
+ */
+export interface SpawnPoint {
+  id: string;
+  name: string;
+  floorId: string;
+  x: number;
+  z: number;
+  yaw: number;
+}
+
+/** The only walkthrough data that belongs in the persistent model. */
+export interface WalkthroughProjectSettings {
+  spawns: SpawnPoint[];
+  /** Which spawn the walkthrough starts from; null = the first one, or an automatic pick. */
+  startSpawnId: string | null;
 }
 
 export interface Project {
@@ -97,6 +167,8 @@ export interface Project {
   floorHeight: number;
   floors: Floor[];
   updatedAt: number;
+  /** Optional: absent on projects saved before the walkthrough existed. */
+  walkthrough?: WalkthroughProjectSettings;
 }
 
 /** Helpers to build freshly-created model elements. */

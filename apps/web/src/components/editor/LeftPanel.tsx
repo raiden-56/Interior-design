@@ -8,6 +8,7 @@ import { useUiStore } from '@/stores/ui-store';
 import { FURNITURE_LIBRARY, FURNITURE_CATEGORIES, searchAssets, type FurnitureCategory } from '@/lib/furniture';
 import { MATERIALS } from '@/lib/materials';
 import { cn } from '@/lib/cn';
+import { SketchUnderlayPanel } from './SketchUnderlayPanel';
 
 export function LeftPanel() {
   const tab = useUiStore((s) => s.leftTab);
@@ -186,6 +187,8 @@ function WallsTab() {
 
   return (
     <div className="space-y-4 p-3 text-xs">
+      <SketchUnderlayPanel />
+
       <section>
         <h4 className="mb-1.5 flex items-center gap-1.5 font-medium text-zinc-300">
           <Grid3x3 className="h-3.5 w-3.5 text-zinc-500" /> Quick room

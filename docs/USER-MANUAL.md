@@ -147,6 +147,58 @@ Ctrl+Z undo   Ctrl+Shift+Z redo           Ctrl+D duplicate
 Ctrl+S save   Ctrl+K AI     Ctrl+B / Ctrl+] toggle panels
 ```
 
+## 11. Walking through the design (first person)
+
+Press **Walk** — in the top bar next to Plan / 3D, or in the bottom bar. The 3D camera flies down to eye
+level inside the house. Click once to take hold of the mouse (the browser asks for pointer lock), then:
+
+| Key | Does |
+|---|---|
+| `W A S D` / arrows | Walk. `Shift` runs, `Ctrl` or `Alt` walks slowly |
+| Mouse | Look around. Pitch is clamped so the view never flips |
+| `E` | Open or close the door you are looking at · sit on a sofa, chair or bench · lie on a bed · stand up · open a cabinet · switch a lamp · use the lift |
+| `C` / `X` | Hide the ceiling / make the walls see-through (design view) |
+| `N` | Navigate: pick a room or a piece of furniture and a route is drawn on the floor and on the map (stairs included) |
+| `J` | Jump to a floor — a shortcut; the stairs are still there to walk |
+| `1` `2` `3` | First person · third person (an avatar you follow) · free camera (fly anywhere) |
+| `L` · `M` · `H` · `F` | Lighting (day / evening / night) · map size · hide the HUD · fullscreen |
+| `Esc` | Pause (the mouse is released). `Esc` again, or **Exit**, flies you back to exactly the 3D view you left |
+
+Stairs are walked, not clicked: approach the bottom step and keep walking; the floor name in the top-left
+updates when you arrive. The walkthrough collides with every wall and piece of furniture in the plan, so if a
+doorway is blocked by a wardrobe you will find out here first. Falling off an unfinished floor puts you back at
+the nearest safe spot with a short notice.
+
+**Setting it up.** With nothing selected, the Properties panel shows **Walkthrough start**: place one or more
+start points in the 3D view (pin icon in the top bar, then click on the floor). Select a door to choose how it
+behaves — manual, automatic, always open or locked. Select furniture to change what `E` does with it or to let
+the player walk through it. Stairs and lifts are in the furniture catalog under **Stairs & Lifts**; a
+staircase's **Rise** should equal the floor height so it arrives on the floor above, and its front edge is the
+bottom step.
+
+**Comfort.** The gear icon in the walkthrough's toolbar has mouse sensitivity, walking and running speed, eye
+height, field of view, camera smoothing, head bob (off / low / medium), reduced motion, invert Y, sprint and
+jump switches, automatic doors and high-contrast prompts. Settings are remembered per browser.
+
+**Clients.** A shared view-only link can include the walkthrough (it is on by default; switch it off in the
+share dialog). Nothing a client does inside — opening doors, sitting, switching lamps — touches the design, and
+capture stays disabled for them.
+
+## 12. Starting from a paper sketch
+
+Draw the plan on paper, photograph it, and trace it:
+
+1. In the plan view open the **Structure** tab and click **Import a sketch or photo…** under *Paper sketch*.
+   The image is scaled down and saved inside the project, so it travels with it.
+2. Drag the sketch into place with the Select tool (grab it on an empty spot). Use the **Opacity** slider so
+   your own lines stay readable; the eye icon hides it, the lock icon pins it.
+3. Set the scale: press `M`, measure something on the sketch whose real length you know (a wall, a door),
+   type that length under *Set the scale* and click **Apply**. Width, rotation and position can also be typed in.
+4. Draw walls (`B`), doors (`D`), windows (`N`) and rooms (`R`) over the lines. **Show in 3D** lays the sketch on
+   the floor in the 3D view as well, which helps when placing furniture.
+
+Each floor has its own sketch, so a two-page drawing becomes two floors.
+
 ## Re-recording the video
 
 ```bash

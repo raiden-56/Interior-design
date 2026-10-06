@@ -1,7 +1,7 @@
 'use client';
 
 import { create } from 'zustand';
-import { can as canFor, type Permissions, type Role, type Session } from '@/lib/session';
+import { sessionAllows, type Permissions, type Role, type Session } from '@/lib/session';
 
 /**
  * Who is looking at the app, client-side.
@@ -55,7 +55,7 @@ export function useRole(): Role | null {
 export function useCan(action: keyof Permissions): boolean {
   return useSessionStore((s) => {
     if (!s.loaded) return action !== 'protectedView';
-    return canFor(s.session?.role ?? null, action);
+    return sessionAllows(s.session, action);
   });
 }
 
@@ -67,5 +67,5 @@ export function useIsShareSession(): boolean {
 export function sessionCan(action: keyof Permissions): boolean {
   const state = useSessionStore.getState();
   if (!state.loaded) return action !== 'protectedView';
-  return canFor(state.session?.role ?? null, action);
+  return sessionAllows(state.session, action);
 }

@@ -4,6 +4,10 @@ Browser-based interior design: draw a floor plan in 2D, see it in 3D instantly, 
 
 - **2D plan (PixiJS)** — walls, doors, windows, rooms, grid + snapping, measure tool, box-select, undo/redo.
 - **3D view (Three.js)** — the same model in real time; move / rotate / scale furniture with on-screen handles; camera and lighting presets; PNG export.
+- **Walkthrough** — press **Walk** and step inside the design in first person: WASD and mouse, realistic walking and running speeds, capsule collision against every wall and piece of furniture, doors that open with **E** (or automatically), sofas, chairs and beds you can sit or lie on, stairs you climb on foot to the next floor, a simulated lift, room names and areas as you enter them, a minimap, "navigate to" routes drawn on the floor, hide-the-ceiling and see-through-wall views, third-person and free cameras, PNG capture of the view, and a smooth flight back to exactly the editor camera you left. Clients can walk a shared design too (switchable per link); nothing done inside changes the model.
+- **Paper sketch underlay** — photograph a hand-drawn plan, import it under the floor plan, set its opacity, scale it by measuring a known length, show/hide, lock, or lay it on the 3D floor, then trace walls and rooms over it.
+- **AI-built plans** — describe a home and have it drawn with your own Claude or OpenAI key, or connect Claude Desktop, Cursor, Codex or Claude Code over **MCP** and let them build and edit projects with studio tools. Either way the result is validated and opens as a normal project. See [`docs/AI-BUILDERS.md`](docs/AI-BUILDERS.md).
+- **Drawing exports** — a to-scale **PDF** set (title block, area schedule, door swings, dimensions, optional 3D page) and a **DXF** for CAD, each with or without a watermark.
 - **Materials** — wood, stone, metal, fabric, glass and paint finishes for walls, floors and furniture.
 - **AI assistant** — "add a grey sofa near the window", "make this room modern". Proposals are previewed and applied only when you confirm. Works offline with a built-in rule engine; plugs into Claude when a key is configured.
 - **Ready-made home plans** — 1 BHK, 2 BHK (classic and open-plan), 3 BHK, studio and single-room starters, each drawn with walls, doors, windows and a full set of furniture. The gallery measures every plan (footprint, carpet area, room-by-room areas, furniture count) so you can compare before you commit, then open one and edit it like any other project.
@@ -61,6 +65,9 @@ To enable the Claude planner: `pip install anthropic` inside the venv (it's in `
 | **Collaborator** (editor) | ✅ | ✅ | ❌ | ❌ | — |
 | **Client** (viewer) | ❌ | ❌ | ❌ | ❌ | ✅ |
 
+Every role can enter the walkthrough. For a view-only link the **Allow the 3D walkthrough** switch in the share
+dialog turns it off; the flag travels inside the signed token like the role does.
+
 Send a design to a client: open the project → **share icon** → name the recipient, pick *View only*, choose an
 expiry and (optionally) a passcode → **Create client link**. They open `/view/<token>` in any browser with no
 account.
@@ -102,6 +109,14 @@ watermark naming the link it came from.
 | Export / import | Top bar **Export** → PNG snapshot, JSON download, or **Import project** |
 | All shortcuts | Press `?` |
 | Guided tour | Press `?` → **Take the tour** — 25 stops covering every tool; Skip or Esc leaves at any point |
+| Walk inside | **Walk** (top bar or bottom bar) → click once to take the mouse → `WASD` move, `Shift` run, `Ctrl`/`Alt` slow, `E` open a door / sit / stand / use the lift, `C` ceiling, `X` see-through walls, `N` navigate to a room, `J` jump to a floor, `1`/`2`/`3` first person / third person / free camera, `L` lighting, `M` map, `H` hide HUD, `F` fullscreen, `Esc` pause then exit |
+| Walkthrough start | 3D view → pin icon → click on the floor (or Properties panel with nothing selected → **Walkthrough start**). Several starts can be saved; the chosen one shows as 🟢 START |
+| Doors in the walkthrough | Select a door → **Walkthrough → Behaviour**: Manual (E), Automatic, Always open, Locked |
+| Furniture in the walkthrough | Select a piece → **Walkthrough**: interaction (sit, lie, open, light…) and whether it blocks the player. Stairs: set the **Rise** to the floor height; the front edge is the bottom step |
+| Stairs and lifts | Furniture → **Stairs & Lifts**. A staircase cuts a stairwell into the slab above and is climbed on foot; a lift offers a floor picker with `E` |
+| Trace a paper sketch | Plan view → **Structure** tab → **Paper sketch → Import** → drag it into place, set **Opacity**, calibrate the scale (measure a known wall with `M`, enter its real length), then draw over it. Eye icon hides it, lock icon pins it, **Show in 3D** lays it on the floor |
+| Build a plan with AI | Dashboard → **Build a plan with your AI**: paste a Claude or OpenAI key and a brief, or copy the MCP configuration into Claude Desktop / Cursor / Codex and ask it to design in Interior Studio |
+| PDF / CAD drawings | Top bar **Export** → **PDF drawing set** or **2D CAD drawing (.dxf)** → floors, watermark on/off, furniture, paper size |
 
 ## Architecture
 
@@ -115,6 +130,10 @@ apps/web             Next.js 15 App Router UI. Zustand stores. Two rendering ada
                      Auth lives in middleware.ts + app/api/auth/*; client links in
                      app/api/share/* and app/view/[token]; all storage traffic goes
                      through the authenticated proxy at app/api/backend/[...path].
+                     components/walkthrough   First-person walkthrough engine: a third adapter over
+                     the same Project. Pure TS modules (collision world, player physics, doors,
+                     seats, stairs, lift, spawn, interaction, navigation, camera) + one R3F rig
+                     (WalkthroughMode.tsx) that lives inside Canvas3D and one DOM HUD.
 apps/site            Marketing site: plain React + Vite (no Next.js), React Router, Tailwind.
                      Statically prerendered to HTML per route by scripts/prerender.mjs,
                      which also emits sitemap.xml, robots.txt and the social card.
@@ -138,6 +157,17 @@ Principles the code follows:
   so a link keeps working with the storage service down and cannot be edited into a better one. The
   trade-off: a link cannot be revoked before it expires, which is why the expiry is chosen up front.
 - **AI proposes, people apply.** Both the rule engine and Claude return the same structured command list; the UI previews it and nothing runs until confirmed. Server-side, model output is sanitised against the actual plan (unknown ids / command types are dropped).
+- **The walkthrough derives its world; it never duplicates it.** Walls, door leaves, furniture, slabs and
+  stairs become simple colliders (oriented boxes with a height range, polygons, ramps) rebuilt whenever the
+  project's `collisionSignature` changes, so a wall moved in the editor is solid on the next frame. It walks
+  through the *same* Three.js scene the editor built — door leaves are the editor's meshes swung about their
+  hinge — and adds only what the editor leaves out (ceilings, room lights, the route line, the avatar), in its
+  own group, removed on exit.
+- **Walkthrough runtime state stays out of React and out of the project.** Position, velocity and look angles
+  live in `WalkthroughRuntime` and advance inside the frame loop; the Zustand store is written only when
+  something readable changes (room, prompt, notice). The only walkthrough data persisted with the project is
+  what a designer authors: spawn points, door behaviour and per-object interaction/collision flags, all stored
+  as `metadata` on the existing model so it survives import/export and sync unchanged.
 
 ## Scripts
 
@@ -145,18 +175,20 @@ Principles the code follows:
 |---|---|
 | `npm run dev` / `npm run build` / `npm start` | Next.js dev server / production build / serve the build |
 | `npm run typecheck` | `tsc --noEmit` across web + core |
-| `npm test` | Node's test runner over the real TS sources (`apps/web/tests/`) — model commands & undo, 3D materials/scene sync, templates, import/export |
+| `npm test` | Node's test runner over the real TS sources (`apps/web/tests/`) — model commands & undo, 3D materials/scene sync, templates, import/export, and the walkthrough (movement, wall/furniture/door collision, stairs and floor transitions, sitting and standing, lift, spawn points, room detection, interaction raycasting, routing, camera restore, permissions, a physics-step time budget) |
 | `npm run dev:api` | FastAPI with reload (`dev:api:unix` on macOS/Linux) |
 | `npm run setup:api` | Create the backend venv and install requirements |
 | `npm run dev:site` / `npm run build:site` / `npm run preview:site` | Marketing site: dev server / static build with prerendering / preview the build |
 | `npm run build:all` | Build the app and the marketing site |
 | `npm run record:manual` | Re-record the user-manual video (needs the app running) → `apps/site/public/user-manual.mp4` |
+| `npm run mcp` | Start the MCP server on stdio (what Claude Desktop / Cursor / Codex launch; see `docs/AI-BUILDERS.md`) |
 
 ## Documentation
 
 | Where | What |
 |---|---|
 | [`docs/USER-MANUAL.md`](docs/USER-MANUAL.md) | Written manual: create, navigate, add objects, move and rotate, paint a wall, draw structure, export, import, share |
+| [`docs/AI-BUILDERS.md`](docs/AI-BUILDERS.md) | Bring-your-own-key plan generation, the MCP server and its tools, PDF and DXF exports |
 | `apps/site/public/user-manual.mp4` | The same walkthrough as a video, 13 chapters. Also served by the marketing site at `/user-manual.mp4` |
 | In the app | `?` for shortcuts, **Take the tour** for the guided walkthrough |
 
@@ -196,4 +228,6 @@ Interactive docs at `http://localhost:8000/docs`.
 
 Multi-user accounts with per-user projects and invitations · revocable share links (a token blocklist) ·
 client comments pinned to the plan · real-time collaboration · GLB furniture import · photoreal rendering ·
-touch/mobile layout · billing for the plans advertised on the marketing site.
+touch/mobile layout (the walkthrough has basic touch controls; the editor does not) · gamepad bindings beyond
+the default sticks/A/B · a lift car that physically travels the shaft (today the ride is simulated) · billing
+for the plans advertised on the marketing site.

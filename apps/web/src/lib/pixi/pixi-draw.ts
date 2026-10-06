@@ -5,8 +5,8 @@
  * No React, no stores; just "state in → graphics out".
  */
 
-import { Container, Graphics, Text } from 'pixi.js';
-import type { CollisionWarning, Floor, Project, UnitSystem, Vec2, Wall } from '@interior/core';
+import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
+import type { CollisionWarning, Floor, Project, SketchUnderlay, UnitSystem, Vec2, Wall } from '@interior/core';
 import { formatLength, polygonArea, wallDir, wallLength, pointOnWall } from '@interior/core';
 import type { Camera, PlanTool } from '../plan-types';
 
@@ -38,6 +38,10 @@ export interface PlanState {
   measure: { from: Vec2 | null; to: Vec2 | null; active: boolean };
   warnings: CollisionWarning[];
   tool: PlanTool;
+  /** Paper sketch position while it is being dragged. */
+  underlayOverride?: { x: number; y: number } | null;
+  /** Called when an asset (the sketch image) finished loading and the plan should redraw. */
+  onAssetReady?: () => void;
 }
 
 const C = {
@@ -71,8 +75,6 @@ interface Label {
 
 export function drawPlan(root: Container, state: PlanState): void {
   root.removeChildren();
-  const g = new Graphics();
-  root.addChild(g);
   const labels: Label[] = [];
 
   const toScreen = (w: Vec2) => ({
@@ -84,8 +86,16 @@ export function drawPlan(root: Container, state: PlanState): void {
   const override = state.wallOverride;
   const walls: Wall[] = floor.walls.map((w) => (override && override.id === w.id ? { ...w, a: override.a, b: override.b } : w));
 
-  drawGrid(g, state, toScreen);
-  drawOriginAxes(g, toScreen);
+  // Grid first, then the paper sketch over it (its own layer so the grid
+  // shows through a translucent scan), then everything drawn on top.
+  const gridLayer = new Graphics();
+  root.addChild(gridLayer);
+  drawGrid(gridLayer, state, toScreen);
+  drawOriginAxes(gridLayer, toScreen);
+  drawUnderlay(root, state, toScreen);
+
+  const g = new Graphics();
+  root.addChild(g);
   drawRooms(g, state, toScreen);
   drawWalls(g, walls, toScreen);
   drawOpenings(g, state, walls, toScreen);
@@ -112,6 +122,79 @@ export function drawPlan(root: Container, state: PlanState): void {
     el.anchor.set(0.5, 0.5);
     el.position.set(t.x, t.y);
     root.addChild(el);
+  }
+}
+
+// --- paper sketch underlay -----------------------------------------------------
+
+/**
+ * Textures are cached per image source. The first draw after an import kicks
+ * off the decode and returns nothing; `onAssetReady` triggers a redraw once
+ * the bitmap is in, so the sketch appears without anyone touching the view.
+ */
+const underlayTextures = new Map<string, Texture | 'loading' | 'failed'>();
+
+function underlayTexture(src: string, onReady?: () => void): Texture | null {
+  const cached = underlayTextures.get(src);
+  if (cached instanceof Texture) return cached;
+  if (cached === 'loading' || cached === 'failed') return null;
+  if (typeof Image === 'undefined') return null;
+  underlayTextures.set(src, 'loading');
+  const img = new Image();
+  img.onload = () => {
+    underlayTextures.set(src, Texture.from(img));
+    onReady?.();
+  };
+  img.onerror = () => underlayTextures.set(src, 'failed');
+  img.src = src;
+  return null;
+}
+
+/** Plan-space corners of a sketch, honouring rotation about its top-left corner. */
+export function underlayCorners(u: SketchUnderlay, pos: { x: number; y: number } = u): Vec2[] {
+  const w = u.width;
+  const h = u.width * u.aspect;
+  const r = (u.rotation * Math.PI) / 180;
+  const c = Math.cos(r);
+  const s = Math.sin(r);
+  const pt = (lx: number, ly: number): Vec2 => ({ x: pos.x + lx * c - ly * s, y: pos.y + lx * s + ly * c });
+  return [pt(0, 0), pt(w, 0), pt(w, h), pt(0, h)];
+}
+
+/** True when a plan point lies on the sketch. */
+export function pointOnUnderlay(u: SketchUnderlay, p: Vec2): boolean {
+  const r = (-u.rotation * Math.PI) / 180;
+  const dx = p.x - u.x;
+  const dy = p.y - u.y;
+  const lx = dx * Math.cos(r) - dy * Math.sin(r);
+  const ly = dx * Math.sin(r) + dy * Math.cos(r);
+  return lx >= 0 && ly >= 0 && lx <= u.width && ly <= u.width * u.aspect;
+}
+
+function drawUnderlay(root: Container, state: PlanState, toScreen: (w: Vec2) => { x: number; y: number }): void {
+  const u = state.floor.underlay;
+  if (!u || !u.visible || !u.src || u.width <= 0) return;
+  const tex = underlayTexture(u.src, state.onAssetReady);
+  if (!tex) return;
+  const pos = state.underlayOverride ?? { x: u.x, y: u.y };
+  const sprite = new Sprite(tex);
+  const origin = toScreen(pos);
+  sprite.position.set(origin.x, origin.y);
+  sprite.width = u.width * state.camera.scale;
+  sprite.height = u.width * u.aspect * state.camera.scale;
+  sprite.rotation = (u.rotation * Math.PI) / 180;
+  sprite.alpha = Math.max(0, Math.min(1, u.opacity));
+  sprite.eventMode = 'none';
+  root.addChild(sprite);
+
+  // A thin outline while dragging, so the edges are visible at low opacity.
+  if (state.underlayOverride) {
+    const g = new Graphics();
+    const pts = underlayCorners(u, pos).map(toScreen);
+    g.moveTo(pts[0].x, pts[0].y);
+    for (const p of pts.slice(1)) g.lineTo(p.x, p.y);
+    g.closePath().stroke({ width: 1, color: 0x38bdf8, alpha: 0.9 });
+    root.addChild(g);
   }
 }
 

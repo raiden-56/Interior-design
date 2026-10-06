@@ -43,6 +43,7 @@ export async function POST(request: Request) {
     expiresAt: payload.exp || null,
     allowComments: payload.cm,
     watermark: payload.wm,
+    allowWalkthrough: payload.wt !== false,
   };
 
   recordEvent({

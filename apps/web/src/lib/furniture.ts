@@ -16,7 +16,8 @@ export type FurnitureCategory =
   | 'office'
   | 'lighting'
   | 'decoration'
-  | 'outdoor';
+  | 'outdoor'
+  | 'structure';
 
 export interface FurnitureAsset {
   id: string;
@@ -70,7 +71,9 @@ export interface FurnitureAsset {
     | 'curtain'
     | 'ac-split'
     | 'bench'
-    | 'ottoman';
+    | 'ottoman'
+    | 'stairs'
+    | 'elevator';
   width: number;
   depth: number;
   height: number;
@@ -94,6 +97,7 @@ const cat: Record<string, FurnitureCategory> = {
   Li: 'lighting',
   Dec: 'decoration',
   Out: 'outdoor',
+  S: 'structure',
 };
 
 export const FURNITURE_CATEGORIES: { id: FurnitureCategory; label: string }[] = [
@@ -106,6 +110,7 @@ export const FURNITURE_CATEGORIES: { id: FurnitureCategory; label: string }[] = 
   { id: 'lighting', label: 'Lighting' },
   { id: 'decoration', label: 'Decoration' },
   { id: 'outdoor', label: 'Outdoor' },
+  { id: 'structure', label: 'Stairs & Lifts' },
 ];
 
 const slug = (s: string): string =>
@@ -236,6 +241,13 @@ export const FURNITURE_LIBRARY: FurnitureAsset[] = [
   A(cat.Out, 'Outdoor Table', 'round-table', 1.0, 1.0, 0.72, '#5c6b52', ['patio', 'table']),
   A(cat.Out, 'Outdoor Sofa', 'sofa', 2.0, 0.9, 0.7, '#4a5544', ['patio', 'sofa']),
   A(cat.Out, 'Potted Tree', 'plant', 0.8, 0.8, 2.0, '#2e5d39', ['plant', 'tree']),
+
+  // Structure — walkable in the walkthrough. A staircase's `height` is its
+  // total rise (match the floor height); its front edge (+depth) is the
+  // bottom step and it climbs towards its back edge.
+  A(cat.S, 'Straight Staircase', 'stairs', 1.0, 3.2, 3.0, '#9a7b52', ['stairs', 'staircase', 'steps', 'floor']),
+  A(cat.S, 'Wide Staircase', 'stairs', 1.4, 3.6, 3.0, '#8a6a47', ['stairs', 'staircase', 'steps', 'floor']),
+  A(cat.S, 'Elevator', 'elevator', 1.6, 1.8, 2.4, '#aab0b6', ['elevator', 'lift', 'floor']),
 ];
 
 export const assetById = (id: string): FurnitureAsset | undefined => FURNITURE_LIBRARY.find((a) => a.id === id);
@@ -309,4 +321,8 @@ export const keywordToAssets: Record<string, string[]> = {
   mandir: ['decoration-pooja-unit'],
   'shoe rack': ['living-shoe-rack'],
   kitchen: ['kitchen-kitchen-island', 'kitchen-kitchen-cabinet'],
+  stairs: ['structure-straight-staircase'],
+  staircase: ['structure-straight-staircase'],
+  elevator: ['structure-elevator'],
+  lift: ['structure-elevator'],
 };

@@ -1,5 +1,5 @@
 import type { Door, Floor, Project, ProjectObject, Room, Vec2, Wall, Window } from '@interior/core';
-import { createProject, polygonArea } from '@interior/core';
+import { createFloor, createProject, polygonArea } from '@interior/core';
 import { assetById } from './furniture';
 
 /**
@@ -16,7 +16,7 @@ import { assetById } from './furniture';
  * south.
  */
 
-export type TemplateCategory = 'blank' | 'room' | 'studio' | '1bhk' | '2bhk' | '3bhk';
+export type TemplateCategory = 'blank' | 'room' | 'studio' | '1bhk' | '2bhk' | '3bhk' | 'duplex';
 
 export interface ProjectTemplate {
   id: string;
@@ -172,6 +172,18 @@ function withFloor(project: Project, fill: (f: Floor) => void): Project {
   return project;
 }
 
+/** Adds an upper floor at the project's floor height and fills it. */
+function withUpperFloor(project: Project, name: string, fill: (f: Floor) => void): Project {
+  const below = project.floors[project.floors.length - 1];
+  const floor = createFloor(name);
+  floor.height = project.floorHeight;
+  floor.elevation = below.elevation + project.floorHeight;
+  fill(floor);
+  project.floors.push(floor);
+  project.updatedAt = Date.now();
+  return project;
+}
+
 // --- reporting ---------------------------------------------------------------
 
 export interface TemplateStats {
@@ -185,21 +197,24 @@ export interface TemplateStats {
   windows: number;
 }
 
-/** Everything the gallery needs to describe a plan, derived from the plan itself. */
+/** Everything the gallery needs to describe a plan, derived from the plan itself (all floors). */
 export function templateStats(project: Project): TemplateStats {
   const floor = project.floors[0];
   const xs = floor.walls.flatMap((w) => [w.a.x, w.b.x]);
   const ys = floor.walls.flatMap((w) => [w.a.y, w.b.y]);
   const width = xs.length ? Math.max(...xs) - Math.min(...xs) : 0;
   const depth = ys.length ? Math.max(...ys) - Math.min(...ys) : 0;
-  const rooms = floor.rooms.map((r) => ({ id: r.id, name: r.name, area: Math.abs(polygonArea(r.points)) }));
+  const multi = project.floors.length > 1;
+  const rooms = project.floors.flatMap((f) =>
+    f.rooms.map((r) => ({ id: r.id, name: multi ? `${r.name} · ${f.name}` : r.name, area: Math.abs(polygonArea(r.points)) })),
+  );
   return {
-    footprint: width && depth ? `${width.toFixed(1)} × ${depth.toFixed(1)} m` : '—',
+    footprint: width && depth ? `${width.toFixed(1)} × ${depth.toFixed(1)} m${multi ? ` · ${project.floors.length} floors` : ''}` : '—',
     carpetArea: rooms.reduce((sum, r) => sum + r.area, 0),
     rooms: rooms.sort((a, b) => b.area - a.area),
-    objects: floor.objects.length,
-    doors: floor.doors.length,
-    windows: floor.windows.length,
+    objects: project.floors.reduce((n, f) => n + f.objects.length, 0),
+    doors: project.floors.reduce((n, f) => n + f.doors.length, 0),
+    windows: project.floors.reduce((n, f) => n + f.windows.length, 0),
   };
 }
 
@@ -838,6 +853,147 @@ export const TEMPLATES: ProjectTemplate[] = [
   },
 ];
 
+/**
+ * Two-storey 3 BHK with a real staircase — the plan the walkthrough's
+ * acceptance scenario describes: living room, sofa, dining, kitchen and a
+ * bathroom downstairs; walk up the stairs to the bedrooms and bathroom above.
+ */
+function buildDuplex(): Project {
+  const project = createProject('Duplex 3 BHK');
+  project.floors[0].name = 'Ground Floor';
+  project.floorHeight = 3;
+  project.floors[0].height = 3;
+
+  withFloor(project, (f) => {
+    const s = shell(0, 0, 10, 8);
+    const kitWall = wallV(6, 0, 4);
+    const bathTop = wallH(5, 0, 2.5);
+    const bathSide = wallV(2.5, 5, 8);
+    f.walls.push(...s.all, kitWall, bathTop, bathSide);
+
+    f.doors.push(
+      doorX(s.bottom, 5.0, 1.0), // main entrance
+      doorY(kitWall, 1.0, 0.9), // kitchen
+      doorX(bathTop, 1.7, 0.8), // bathroom
+    );
+    f.windows.push(winX(s.top, 3.5, 1.8), winX(s.top, 8.0, 1.4), winY(s.right, 2.0, 1.2), winY(s.right, 6.0, 1.6), winX(s.bottom, 8.0, 1.8), winY(s.left, 6.6, 0.9, 1.4, 0.8));
+
+    f.rooms.push(
+      room('Living & Dining', [
+        { x: 0, y: 0 },
+        { x: 6, y: 0 },
+        { x: 6, y: 4 },
+        { x: 10, y: 4 },
+        { x: 10, y: 8 },
+        { x: 2.5, y: 8 },
+        { x: 2.5, y: 5 },
+        { x: 0, y: 5 },
+      ], 'living'),
+      rect('Kitchen', 6, 0, 10, 4, 'kitchen', 'stone-marble-white'),
+      rect('Bathroom', 0, 5, 2.5, 8, 'bath', 'tile-white'),
+    );
+
+    f.objects.push(
+      // Staircase along the west wall: bottom step to the south, climbing north.
+      place('structure-straight-staircase', 0.75, 2.4),
+      // Living
+      north('living-tv-unit', 3.6, 0),
+      north('living-wall-tv-55-inch', 3.6, 0),
+      place('living-sofa-3-seat', 3.6, 3.3, Math.PI),
+      place('living-coffee-table', 3.6, 2.1),
+      place('living-rug', 3.6, 2.2, 0, '#8f8577'),
+      place('living-armchair', 5.0, 3.3, -Math.PI / 2),
+      place('living-floor-plant', 5.6, 4.6),
+      place('living-ceiling-fan', 3.6, 2.2),
+      west('living-shoe-rack', 2.5, 7.4),
+      // Dining
+      place('dining-dining-table-6-seat', 8.0, 6.0),
+      place('dining-dining-chair', 7.3, 5.3),
+      place('dining-dining-chair', 8.7, 5.3),
+      place('dining-dining-chair', 7.3, 6.7, Math.PI),
+      place('dining-dining-chair', 8.7, 6.7, Math.PI),
+      east('dining-crockery-unit', 10, 4.9),
+      place('lighting-pendant-light', 8.0, 6.0),
+      // Kitchen
+      north('kitchen-kitchen-sink', 8.0, 0),
+      north('kitchen-chimney-hood', 9.1, 0),
+      north('kitchen-oven-range', 9.1, 0),
+      east('kitchen-refrigerator', 10, 1.4),
+      west('kitchen-kitchen-cabinet', 6, 3.2),
+      place('kitchen-kitchen-island', 8.0, 2.4),
+      // Bathroom
+      west('bathroom-toilet', 0, 7.4),
+      east('bathroom-basin-sink', 2.5, 6.0),
+      place('bathroom-shower', 1.9, 7.4),
+      west('bathroom-mirror', 0, 6.2),
+    );
+  });
+
+  withUpperFloor(project, 'First Floor', (f) => {
+    const s = shell(0, 0, 10, 8);
+    const landingWall = wallV(2.5, 0, 8);
+    const midWall = wallH(4, 2.5, 10);
+    const bathWall = wallV(6.5, 4, 8);
+    f.walls.push(...s.all, landingWall, midWall, bathWall);
+
+    f.doors.push(
+      doorY(landingWall, 2.0, 0.9), // master bedroom
+      doorY(landingWall, 6.0, 0.9), // bedroom 2
+      doorX(midWall, 8.25, 0.8), // en-suite from the master bedroom
+    );
+    f.windows.push(winX(s.top, 6.0, 2.0), winY(s.right, 2.0, 1.4), winY(s.right, 6.0, 1.0, 1.4, 0.8), winX(s.bottom, 4.5, 1.8), winY(s.left, 6.0, 1.2));
+
+    f.rooms.push(
+      rect('Landing', 0, 0, 2.5, 8, 'hall'),
+      rect('Master Bedroom', 2.5, 0, 10, 4, 'bedroom'),
+      rect('Bedroom 2', 2.5, 4, 6.5, 8, 'bedroom'),
+      rect('Bathroom', 6.5, 4, 10, 8, 'bath', 'tile-white'),
+    );
+
+    f.objects.push(
+      // Master bedroom
+      north('bedroom-king-bed', 6.0, 0),
+      north('bedroom-nightstand', 4.7, 0),
+      north('bedroom-nightstand', 7.3, 0),
+      south('bedroom-wardrobe', 4.6, 4),
+      east('bedroom-dressing-table', 10, 3.0),
+      place('living-ceiling-fan', 6.0, 2.0),
+      // Bedroom 2
+      east('bedroom-single-bed', 6.5, 6.6),
+      west('bedroom-study-table', 2.5, 4.7),
+      place('office-office-chair', 3.6, 4.7, Math.PI / 2),
+      north('bedroom-wardrobe', 5.2, 4),
+      // Bathroom
+      east('bathroom-toilet', 10, 7.4),
+      south('bathroom-basin-sink', 8.0, 8),
+      place('bathroom-shower', 7.1, 4.6),
+      // Landing
+      place('living-floor-plant', 1.2, 7.3),
+    );
+  });
+
+  // Start the walkthrough just inside the front door, facing the living room.
+  project.walkthrough = {
+    spawns: [{ id: 'spawn-entrance', name: 'Entrance', floorId: project.floors[0].id, x: 5.0, z: 7.0, yaw: 0 }],
+    startSpawnId: 'spawn-entrance',
+  };
+  return project;
+}
+
+TEMPLATES.push({
+  id: 'duplex',
+  name: 'Duplex 3 BHK with stairs',
+  description:
+    'Two storeys: living-dining, kitchen and a bathroom downstairs; a landing, master bedroom with en-suite, second bedroom and bathroom upstairs. Walk up the stairs in the walkthrough.',
+  category: 'duplex',
+  badge: 'Duplex',
+  bedrooms: 2,
+  bathrooms: 2,
+  highlights: ['A real staircase connecting the two floors', 'Open living-dining with the kitchen off it', 'Walkthrough starts at the front door'],
+  bestFor: 'Trying the first-person walkthrough end to end, or a two-storey home',
+  build: buildDuplex,
+});
+
 export const templateById = (id: string): ProjectTemplate | undefined => TEMPLATES.find((t) => t.id === id);
 
 /** Filter chips for the gallery, in display order. */
@@ -846,6 +1002,7 @@ export const TEMPLATE_FILTERS: { id: TemplateCategory | 'all'; label: string }[]
   { id: '1bhk', label: '1 BHK' },
   { id: '2bhk', label: '2 BHK' },
   { id: '3bhk', label: '3 BHK' },
+  { id: 'duplex', label: 'Duplex' },
   { id: 'studio', label: 'Studio' },
   { id: 'room', label: 'Single room' },
   { id: 'blank', label: 'Blank' },
